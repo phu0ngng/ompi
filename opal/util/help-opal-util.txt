@@ -114,3 +114,9 @@ A call to mkdir was unable to create the desired directory:
 
 Please check to ensure you have adequate permissions to perform
 the desired operation.
+#
+[open-fail]
+A call to open failed for the following file:
+
+  File:  %s
+  Error: %s

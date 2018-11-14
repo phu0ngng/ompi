@@ -78,6 +78,7 @@
 #include "opal/util/os_path.h"
 #include "opal/util/argv.h"
 #include "opal/util/printf.h"
+#include "opal/util/sys_limits.h"
 
 /*
  * Sanity check to ensure we have either statfs or statvfs
@@ -663,6 +664,176 @@ found:
 
 #undef FS_TYPES_NUM
 }
+
+#ifndef HUGETLBFS_MAGIC
+#define HUGETLBFS_MAGIC       0x958458f6
+#endif
+
+static
+size_t parse_hugepagesize(const char *filename)
+{
+    char fsmount[256];
+    char fstype[64];
+    char fsopts[256];
+    size_t pagesize = 0;
+    bool use_default = true;
+    FILE *fd;
+    const char *format = "%*s %255s %64s %255s %*d %*d";
+
+    fd = fopen("/proc/mounts", "r");
+    if (NULL == fd) {
+        return pagesize;
+    }
+
+    while (fscanf(fd, format, fsmount, fstype, fsopts) == 3) {
+        // check if this is the mount point we are looking for
+        if (0 == strcmp(fstype, "hugetlbfs") &&
+            0 == strncmp(fsmount, filename, strlen(fsmount))) {
+            // search for the 'pagesize' option
+            char *saveptr = NULL;
+            char *str = fsopts;
+            char *tok;
+            while (NULL != (tok = strtok_r(str, ",", &saveptr))) {
+                str = NULL;
+                if (!strncmp(tok, "pagesize", 8)) {
+                    char *endptr;
+                    int base = 10;
+                    // skip 'pagesize='
+                    tok += 9;
+                    size_t ps = strtol(tok, &endptr, base);
+                    // get the units right
+                    switch (*endptr) {
+                        case 'G':
+                        case 'g':
+                            ps *= 1024; // fall-through
+                        case 'M':
+                        case 'm':
+                            ps *= 1024; // fall-through
+                        case 'K':
+                        case 'k':
+                            ps *= 1024; // fall-through
+                        default:
+                            break;
+                    }
+                    pagesize = ps;
+                    use_default = false;
+                    break;
+                }
+            }
+            if (pagesize > 0) {
+                break;
+            }
+        }
+    }
+
+    fclose(fd);
+
+    if (use_default) {
+        pagesize = opal_gethugepagesize();
+    }
+
+    return pagesize;
+}
+
+bool opal_path_hugetlbfs(char *fname, size_t *ret_pagesize)
+{
+    int i;
+    int fsrc = -1;
+    int vfsrc = -1;
+    char * file = strdup (fname);
+    size_t pagesize = 0;
+#if defined(USE_STATFS)
+    struct statfs fsbuf;
+#endif
+#if defined(HAVE_STATVFS)
+    struct statvfs vfsbuf;
+#endif
+
+    const char *fsname = "hugetlbfs";
+    bool repeat;
+    do {
+        repeat = false;
+#if defined(USE_STATFS)
+        fsrc = statfs(file, &fsbuf);
+#endif
+#if defined(HAVE_STATVFS)
+        vfsrc = statvfs(file, &vfsbuf);
+#endif
+        if (-1 == fsrc && -1 == vfsrc) {
+            char *last_sep;
+            last_sep = strrchr(file, OPAL_PATH_SEP[0]);
+            /* Stop the search, when we have searched past root '/' */
+            if (NULL == last_sep ||
+                (1 == strlen(last_sep) && OPAL_PATH_SEP[0] == *last_sep)) {
+
+                OPAL_OUTPUT_VERBOSE((10, 0, "opal_path_hugetlbfs: stat(v)fs on "
+                                    "file:%s failed errno:%d directory:%s\n",
+                                    fname, errno, file));
+                free(file);
+
+                return false;
+            }
+            *last_sep = '\0';
+            repeat = true;
+        }
+
+    } while (repeat);
+
+    do {
+        /* Next, extract the magic value */
+#if defined(USE_STATFS)
+        /* These are uses of struct statfs */
+#    if defined(HAVE_STRUCT_STATFS_F_FSTYPENAME)
+        if (0 == fsrc &&
+            0 == strncasecmp(fsname, fsbuf.f_fstypename,
+                    sizeof(fsbuf.f_fstypename))) {
+            break;
+        }
+#    endif
+#    if defined(HAVE_STRUCT_STATFS_F_TYPE)
+        if (0 == fsrc &&
+            HUGETLBFS_MAGIC == (fsbuf.f_type & MASK4)) {
+            break;
+        }
+#    endif
+#endif
+
+#if defined(HAVE_STATVFS)
+        /* These are uses of struct statvfs */
+#    if defined(HAVE_STRUCT_STATVFS_F_BASETYPE)
+        if (0 == vfsrc &&
+            0 == strncasecmp(fsname, vfsbuf.f_basetype,
+                    sizeof(vfsbuf.f_basetype))) {
+            break;
+        }
+#    endif
+#    if defined(HAVE_STRUCT_STATVFS_F_FSTYPENAME)
+        if (0 == vfsrc &&
+            0 == strncasecmp(fsname, vfsbuf.f_fstypename,
+                    sizeof(vfsbuf.f_fstypename))) {
+            break;
+        }
+#    endif
+#endif
+
+        free (file);
+
+        return false;
+
+    } while (0);
+
+    pagesize = parse_hugepagesize(file);
+    free (file);
+
+    OPAL_OUTPUT_VERBOSE((10, 0, "opal_path_hugetlbfs: file:%s on ps:%zu\n",
+                        fname, pagesize));
+
+    *ret_pagesize = pagesize;
+
+    return true;
+}
+
+
 
 int
 opal_path_df(const char *path,

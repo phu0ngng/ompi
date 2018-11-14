@@ -40,6 +40,11 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#ifdef HAVE_CTYPE_H
+#include <ctype.h>
+#endif
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "opal/constants.h"
 #include "opal/runtime/opal_params.h"
@@ -251,4 +256,40 @@ int opal_getpagesize(void)
 #else
     return page_size = 65536; /* safer to overestimate than under */
 #endif
+}
+
+size_t opal_gethugepagesize(void)
+{
+    static ssize_t hugepagesize = -1;
+
+    if (-1 == hugepagesize) {
+        FILE *fd;
+        char *line;
+        size_t n;
+        const char *procmem = "/proc/meminfo";
+        // parse /proc/meminfo for default pagesize
+        fd = fopen(procmem, "r");
+        if (!fd) {
+            opal_show_help("help-opal-util.txt", "open-failed", true,
+                           procmem, strerror(errno));
+            return 0;
+        }
+
+        n = 128 * sizeof(char);
+        line = malloc(n);
+        while (-1 != getline(&line, &n, fd)) {
+            if (!strncmp(line, "Hugepagesize:", 13)) {
+                char *tmp = line;
+                tmp += 13;
+                while (isspace(*tmp)) { ++tmp; }
+                hugepagesize = atol(tmp);
+                hugepagesize *= 1024;
+                break;
+            }
+        }
+        fclose(fd);
+        free(line);
+    }
+
+    return hugepagesize;
 }

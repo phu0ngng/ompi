@@ -145,6 +145,18 @@ OPAL_DECLSPEC char *opal_path_access(char *fname, char *path, int mode) __opal_a
 OPAL_DECLSPEC bool opal_path_nfs(char *fname, char **fstype) __opal_attribute_warn_unused_result__;
 
 /**
+ * @brief Figure out whether fname points to a (a file in a) hugetlbfs filesystem
+ *
+ * @fname[in]     File name to check
+ * @pagesize[out] Page-size in case a hugetlbfs is detected
+ *
+ * @retval true                If fname points to a hugetlbfs
+ * @retval false               otherwise
+ */
+OPAL_DECLSPEC bool opal_path_hugetlbfs(char *fname, size_t *pagesize) __opal_attribute_warn_unused_result__;
+
+
+/**
  * @brief Returns the disk usage of path.
  *
  * @param[in] path       Path to check

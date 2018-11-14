@@ -122,6 +122,7 @@ shmem_ds_reset(opal_shmem_ds_t *ds_buf)
     OPAL_SHMEM_DS_RESET_FLAGS(ds_buf);
     ds_buf->seg_id = OPAL_SHMEM_DS_ID_INVALID;
     ds_buf->seg_size = 0;
+    ds_buf->page_size = 0;
     memset(ds_buf->seg_name, '\0', OPAL_PATH_MAX);
     ds_buf->seg_base_addr = (unsigned char *)MAP_FAILED;
 }
@@ -234,8 +235,9 @@ segment_create(opal_shmem_ds_t *ds_buf,
         opal_atomic_wmb();
 
         /* -- initialize the contents of opal_shmem_ds_t -- */
-        ds_buf->seg_cpid = my_pid;
-        ds_buf->seg_size = real_size;
+        ds_buf->seg_cpid  = my_pid;
+        ds_buf->seg_size  = real_size;
+        ds_buf->page_size = opal_getpagesize();
         ds_buf->seg_base_addr = (unsigned char *)seg_hdrp;
 
         /* notice that we are not setting ds_buf->name here.  at this point,

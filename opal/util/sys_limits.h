@@ -55,6 +55,11 @@ OPAL_DECLSPEC int opal_util_init_sys_limits(char **errmsg);
  */
 OPAL_DECLSPEC int opal_getpagesize(void);
 
+/**
+ * Get default hugepage pagesize
+ */
+OPAL_DECLSPEC size_t opal_gethugepagesize(void);
+
 
 END_C_DECLS
 

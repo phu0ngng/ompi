@@ -54,6 +54,7 @@
 #include "opal/util/path.h"
 #include "opal/util/show_help.h"
 #include "opal/util/string_copy.h"
+#include "opal/util/sys_limits.h"
 #include "opal/mca/shmem/shmem.h"
 #include "opal/mca/shmem/base/base.h"
 
@@ -132,6 +133,7 @@ shmem_ds_reset(opal_shmem_ds_t *ds_buf)
     OPAL_SHMEM_DS_RESET_FLAGS(ds_buf);
     ds_buf->seg_id = OPAL_SHMEM_DS_ID_INVALID;
     ds_buf->seg_size = 0;
+    ds_buf->page_size = 0;
     memset(ds_buf->seg_name, '\0', OPAL_PATH_MAX);
     ds_buf->seg_base_addr = (unsigned char *)MAP_FAILED;
 }
@@ -303,6 +305,8 @@ segment_create(opal_shmem_ds_t *ds_buf,
     pid_t my_pid = getpid();
     bool space_available = false;
     uint64_t amount_space_avail = 0;
+    size_t pagesize;
+    bool is_hugetlbfs = false;
 
     /* the real size of the shared memory segment.  this includes enough space
      * to store our segment header.
@@ -371,25 +375,33 @@ segment_create(opal_shmem_ds_t *ds_buf,
         opal_show_help("help-opal-shmem-mmap.txt", "mmap on nfs", 1, hn,
                        real_file_name);
     }
-    /* let's make sure we have enough space for the backing file */
-    if (OPAL_SUCCESS != (rc = enough_space(real_file_name,
-                                           real_size,
-                                           &amount_space_avail,
-                                           &space_available))) {
-        opal_output(0, "shmem: mmap: an error occurred while determining "
-                    "whether or not %s could be created.", real_file_name);
-        /* rc is set */
-        goto out;
+
+    is_hugetlbfs = opal_path_hugetlbfs(real_file_name, &pagesize);
+
+    /* hugetlbfs mount points can be of size 0 */
+    if (!is_hugetlbfs) {
+        pagesize = opal_getpagesize();
+        /* let's make sure we have enough space for the backing file */
+        if (OPAL_SUCCESS != (rc = enough_space(real_file_name,
+                                               real_size,
+                                               &amount_space_avail,
+                                               &space_available))) {
+            opal_output(0, "shmem: mmap: an error occurred while determining "
+                        "whether or not %s could be created.", real_file_name);
+            /* rc is set */
+            goto out;
+        }
+        if (!space_available) {
+            char hn[OPAL_MAXHOSTNAMELEN];
+            gethostname(hn, sizeof(hn));
+            rc = OPAL_ERR_OUT_OF_RESOURCE;
+            opal_show_help("help-opal-shmem-mmap.txt", "target full", 1,
+                           real_file_name, hn, (unsigned long)real_size,
+                           (unsigned long long)amount_space_avail);
+            goto out;
+        }
     }
-    if (!space_available) {
-        char hn[OPAL_MAXHOSTNAMELEN];
-        gethostname(hn, sizeof(hn));
-        rc = OPAL_ERR_OUT_OF_RESOURCE;
-        opal_show_help("help-opal-shmem-mmap.txt", "target full", 1,
-                       real_file_name, hn, (unsigned long)real_size,
-                       (unsigned long long)amount_space_avail);
-        goto out;
-    }
+
     /* enough space is available, so create the segment */
     if (-1 == (ds_buf->seg_id = open(real_file_name, O_CREAT | O_RDWR, 0600))) {
         int err = errno;
@@ -400,16 +412,20 @@ segment_create(opal_shmem_ds_t *ds_buf,
         rc = OPAL_ERROR;
         goto out;
     }
-    /* size backing file - note the use of real_size here */
-    if (0 != ftruncate(ds_buf->seg_id, real_size)) {
-        int err = errno;
-        char hn[OPAL_MAXHOSTNAMELEN];
-        gethostname(hn, sizeof(hn));
-        opal_show_help("help-opal-shmem-mmap.txt", "sys call fail", 1, hn,
-                       "ftruncate(2)", "", strerror(err), err);
-        rc = OPAL_ERROR;
-        goto out;
+
+    /* size backing file - files backed by hugetlbfs do not need this */
+    if (!is_hugetlbfs) {
+        if (0 != ftruncate(ds_buf->seg_id, real_size)) {
+            int err = errno;
+            char hn[OPAL_MAXHOSTNAMELEN];
+            gethostname(hn, sizeof(hn));
+            opal_show_help("help-opal-shmem-mmap.txt", "sys call fail", 1, hn,
+                           "ftruncate(2)", "", strerror(err), err);
+            rc = OPAL_ERROR;
+            goto out;
+        }
     }
+
     if (MAP_FAILED == (seg_hdrp = (opal_shmem_seg_hdr_t *)
                                   mmap(NULL, real_size,
                                        PROT_READ | PROT_WRITE, MAP_SHARED,
@@ -438,6 +454,7 @@ segment_create(opal_shmem_ds_t *ds_buf,
         ds_buf->seg_cpid = my_pid;
         ds_buf->seg_size = real_size;
         ds_buf->seg_base_addr = (unsigned char *)seg_hdrp;
+        ds_buf->page_size = pagesize;
         (void)opal_string_copy(ds_buf->seg_name, real_file_name, OPAL_PATH_MAX);
 
         /* set "valid" bit because setment creation was successful */
@@ -560,7 +577,10 @@ segment_detach(opal_shmem_ds_t *ds_buf)
          ds_buf->seg_id, (unsigned long)ds_buf->seg_size, ds_buf->seg_name)
     );
 
-    if (0 != munmap((void *)ds_buf->seg_base_addr, ds_buf->seg_size)) {
+    // round-up to the pagesize (needed for huge pages)
+    size_t page_size = ds_buf->page_size;
+    size_t size = (((ds_buf->seg_size - 1) / page_size) + 1) * page_size;
+    if (0 != munmap((void *)ds_buf->seg_base_addr, size)) {
         int err = errno;
         char hn[OPAL_MAXHOSTNAMELEN];
         gethostname(hn, sizeof(hn));

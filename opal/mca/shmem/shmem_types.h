@@ -115,6 +115,8 @@ struct opal_shmem_ds_t {
     int seg_id;
     /* size of shared memory segment */
     size_t seg_size;
+    /* pagesize of the shared memory segment */
+    size_t page_size;
     /* base address of shared memory segment */
     unsigned char *seg_base_addr;
     /* path to backing store -- last element so we can easily calculate the
