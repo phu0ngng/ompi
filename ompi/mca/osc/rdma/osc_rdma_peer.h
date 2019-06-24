@@ -114,8 +114,8 @@ OBJ_CLASS_DECLARATION(ompi_osc_rdma_peer_extended_t);
 struct ompi_osc_rdma_rank_data_t {
     /** index of none in none_comm_info array */
     unsigned int node_id;
-    /** local rank of process */
-    unsigned int rank;
+    /** local rank of process, used to signal local errors */
+    int rank;
 };
 typedef struct ompi_osc_rdma_rank_data_t ompi_osc_rdma_rank_data_t;
 

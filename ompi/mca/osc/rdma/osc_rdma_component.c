@@ -941,10 +941,10 @@ static int ompi_osc_rdma_query_btls (ompi_communicator_t *comm, struct mca_btl_b
     return OMPI_SUCCESS;
 }
 
-static int ompi_osc_rdma_share_data (ompi_osc_rdma_module_t *module)
+static int ompi_osc_rdma_share_data (ompi_osc_rdma_module_t *module, int error)
 {
     ompi_osc_rdma_region_t *my_data;
-    int ret, global_result;
+    int ret;
     int my_rank = ompi_comm_rank (module->comm);
     int comm_size = ompi_comm_size (module->comm);
     ompi_osc_rdma_rank_data_t *temp;
@@ -956,9 +956,9 @@ static int ompi_osc_rdma_share_data (ompi_osc_rdma_module_t *module)
             break;
         }
 
-        /* fill in rank -> node translation */
+        /* fill in rank -> node translation or signal error state */
         temp[my_rank].node_id = module->node_id;
-        temp[my_rank].rank = ompi_comm_rank (module->shared_comm);
+        temp[my_rank].rank = (OMPI_SUCCESS == error) ? ompi_comm_rank (module->shared_comm) : error;
 
         ret = module->comm->c_coll->coll_allgather (MPI_IN_PLACE, 1, MPI_2INT, temp, 1, MPI_2INT,
                                                    module->comm, module->comm->c_coll->coll_allgather_module);
@@ -966,7 +966,16 @@ static int ompi_osc_rdma_share_data (ompi_osc_rdma_module_t *module)
             break;
         }
 
-        if (0 == ompi_comm_rank (module->shared_comm)) {
+        /* check for errors reported by other processes */
+        for (int i = 0; i < comm_size; ++i) {
+          if (0 > temp[i].rank) {
+            OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_ERROR, "rank %d on node %d reported error %d", i, tmp[i].node, ret);
+            ret = temp[i].rank;
+            break;
+          }
+        }
+
+        if (OMPI_SUCCESS == ret && 0 == ompi_comm_rank (module->shared_comm)) {
             /* fill in my part of the node array */
             my_data = (ompi_osc_rdma_region_t *) ((intptr_t) module->node_comm_info + ompi_comm_rank (module->local_leaders) *
                                                   module->region_size);
@@ -1006,8 +1015,6 @@ static int ompi_osc_rdma_share_data (ompi_osc_rdma_module_t *module)
         free (temp);
     } while (0);
 
-    global_result = synchronize_errorcode(ret, module->comm);
-
     /* none of these communicators are needed anymore so free them now*/
     if (MPI_COMM_NULL != module->local_leaders) {
         ompi_comm_free (&module->local_leaders);
@@ -1017,7 +1024,7 @@ static int ompi_osc_rdma_share_data (ompi_osc_rdma_module_t *module)
         ompi_comm_free (&module->shared_comm);
     }
 
-    return global_result;
+    return ret;
 }
 
 static int ompi_osc_rdma_create_groups (ompi_osc_rdma_module_t *module)
@@ -1241,23 +1248,13 @@ static int ompi_osc_rdma_component_select (struct ompi_win_t *win, void **base, 
 
     /* fill in our part */
     ret = allocate_state_shared (module, base, size);
+    /* continue processing, errors will be propagated in ompi_osc_rdma_share_data */
 
-    /* notify all others if something went wrong */
-    ret = synchronize_errorcode(ret, module->comm);
-    if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
-        OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_ERROR, "failed to allocate internal state");
-        ompi_osc_rdma_free (win);
-        return ret;
-    }
-
-    if (MPI_WIN_FLAVOR_DYNAMIC == flavor) {
+    if (OMPI_SUCCESS == ret && MPI_WIN_FLAVOR_DYNAMIC == flavor) {
         /* allocate space to store local btl handles for attached regions */
         module->dynamic_handles = (ompi_osc_rdma_handle_t *) calloc (mca_osc_rdma_component.max_attach,
                                                                      sizeof (module->dynamic_handles[0]));
-        if (NULL == module->dynamic_handles) {
-            ompi_osc_rdma_free (win);
-            return OMPI_ERR_OUT_OF_RESOURCE;
-        }
+        ret = OMPI_ERR_OUT_OF_RESOURCE;
     }
 
     /* lock data */
@@ -1273,34 +1270,32 @@ static int ompi_osc_rdma_component_select (struct ompi_win_t *win, void **base, 
         win->w_flags |= OMPI_WIN_SAME_DISP;
     }
 
-    /* update component data */
-    OPAL_THREAD_LOCK(&mca_osc_rdma_component.lock);
-    ret = opal_hash_table_set_value_uint32(&mca_osc_rdma_component.modules,
-                                           ompi_comm_get_cid(module->comm),
-                                           module);
-    OPAL_THREAD_UNLOCK(&mca_osc_rdma_component.lock);
-    if (OMPI_SUCCESS != ret) {
-        ompi_osc_rdma_free (win);
-        return ret;
+    if (OMPI_SUCCESS == ret) {
+        /* update component data */
+        OPAL_THREAD_LOCK(&mca_osc_rdma_component.lock);
+        ret = opal_hash_table_set_value_uint32(&mca_osc_rdma_component.modules,
+                                              ompi_comm_get_cid(module->comm),
+                                              module);
+        OPAL_THREAD_UNLOCK(&mca_osc_rdma_component.lock);
     }
-
-    /* fill in window information */
-    *model = MPI_WIN_UNIFIED;
-    win->w_osc_module = (ompi_osc_base_module_t*) module;
-    opal_asprintf(&name, "rdma window %d", ompi_comm_get_cid(module->comm));
-    ompi_win_set_name(win, name);
-    free(name);
 
     /* sync memory - make sure all initialization completed */
     opal_atomic_mb();
 
-    ret = ompi_osc_rdma_share_data (module);
+    ret = ompi_osc_rdma_share_data (module, ret);
     if (OMPI_SUCCESS != ret) {
         OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_ERROR, "failed to share window data with peers");
         ompi_osc_rdma_free (win);
     } else {
         /* for now the leader is always rank 0 in the communicator */
         module->leader = ompi_osc_rdma_module_peer (module, 0);
+
+        /* fill in window information */
+        *model = MPI_WIN_UNIFIED;
+        win->w_osc_module = (ompi_osc_base_module_t*) module;
+        opal_asprintf(&name, "rdma window %d", ompi_comm_get_cid(module->comm));
+        ompi_win_set_name(win, name);
+        free(name);
 
         OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_INFO, "finished creating osc/rdma window with id %d",
                          ompi_comm_get_cid(module->comm));
