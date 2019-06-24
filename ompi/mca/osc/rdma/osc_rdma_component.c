@@ -614,16 +614,16 @@ static int allocate_state_shared (ompi_osc_rdma_module_t *module, void **base, s
                   OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_ERROR, "failed to create shared memory segment");
               }
             }
-        }
 
-        ret = synchronize_errorcode(ret, shared_comm);
-        if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
-            break;
+            /* if there was an error we set the backing store to an empty string */
+            if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
+                module->seg_ds.seg_name[0] = '\0';
+            }
         }
 
         ret = shared_comm->c_coll->coll_bcast (&module->seg_ds, sizeof (module->seg_ds), MPI_BYTE, 0,
                                                shared_comm, shared_comm->c_coll->coll_bcast_module);
-        if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
+        if (OPAL_UNLIKELY(OMPI_SUCCESS != ret || '\0' == module->seg_ds.seg_name[0])) {
             break;
         }
 
