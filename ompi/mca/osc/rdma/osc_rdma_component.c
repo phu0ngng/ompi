@@ -631,35 +631,26 @@ static int allocate_state_shared (ompi_osc_rdma_module_t *module, void **base, s
         if (NULL == module->segment_base) {
             OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_ERROR, "failed to attach to the shared memory segment");
             ret = OPAL_ERROR;
+        } else {
+
+            if (size && MPI_WIN_FLAVOR_ALLOCATE == module->flavor) {
+                *base = (void *)((intptr_t) module->segment_base + my_base_offset);
+                memset (*base, 0, size);
+            }
+
+            module->rank_array = (ompi_osc_rdma_rank_data_t *) module->segment_base;
+            /* put local state region data after the rank array */
+            state_region = (ompi_osc_rdma_region_t *) ((uintptr_t) module->segment_base + local_rank_array_size);
+            module->state = (ompi_osc_rdma_state_t *) ((uintptr_t) module->segment_base + state_base + module->state_size * local_rank);
+
+            /* all local ranks share the array containing the peer data of leader ranks */
+            module->node_comm_info = (unsigned char *) ((uintptr_t) module->segment_base + state_base + module->state_size * local_size);
+
+            /* initialize my state */
+            memset (module->state, 0, module->state_size);
         }
-
-        ret = synchronize_errorcode(ret, shared_comm);
-        if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
-            break;
-        }
-
-        if (size && MPI_WIN_FLAVOR_ALLOCATE == module->flavor) {
-            *base = (void *)((intptr_t) module->segment_base + my_base_offset);
-            memset (*base, 0, size);
-        }
-
-        module->rank_array = (ompi_osc_rdma_rank_data_t *) module->segment_base;
-        /* put local state region data after the rank array */
-        state_region = (ompi_osc_rdma_region_t *) ((uintptr_t) module->segment_base + local_rank_array_size);
-        module->state = (ompi_osc_rdma_state_t *) ((uintptr_t) module->segment_base + state_base + module->state_size * local_rank);
-
-        /* all local ranks share the array containing the peer data of leader ranks */
-        module->node_comm_info = (unsigned char *) ((uintptr_t) module->segment_base + state_base + module->state_size * local_size);
-
-        /* initialize my state */
-        memset (module->state, 0, module->state_size);
-
-        /* barrier to make sure all ranks have attached and initialized */
-        shared_comm->c_coll->coll_barrier(shared_comm, shared_comm->c_coll->coll_barrier_module);
 
         if (0 == local_rank) {
-            /* unlink the shared memory backing file */
-            opal_shmem_unlink (&module->seg_ds);
             /* just go ahead and register the whole segment */
             ret = ompi_osc_rdma_register (module, MCA_BTL_ENDPOINT_ANY, module->segment_base, total_size, MCA_BTL_REG_FLAG_ACCESS_ANY,
                                           &module->state_handle);
@@ -671,27 +662,29 @@ static int allocate_state_shared (ompi_osc_rdma_module_t *module, void **base, s
             }
         }
 
-        /* synchronization to make sure memory is registered */
-        ret = synchronize_errorcode(ret, shared_comm);
-        if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
-            break;
-        }
-
-        if (MPI_WIN_FLAVOR_CREATE == module->flavor) {
-            ret = ompi_osc_rdma_initialize_region (module, base, size);
-        } else if (MPI_WIN_FLAVOR_ALLOCATE == module->flavor) {
-            ompi_osc_rdma_region_t *region = (ompi_osc_rdma_region_t *) module->state->regions;
-            module->state->disp_unit = module->disp_unit;
-            module->state->region_count = 1;
-            region->base = state_region->base + my_base_offset;
-            region->len = size;
-            if (module->selected_btl->btl_register_mem) {
-                memcpy (region->btl_handle_data, state_region->btl_handle_data, module->selected_btl->btl_registration_handle_size);
+        if (OPAL_LIKELY(OMPI_SUCCESS == ret)) {
+            if (MPI_WIN_FLAVOR_CREATE == module->flavor) {
+                ret = ompi_osc_rdma_initialize_region (module, base, size);
+            } else if (MPI_WIN_FLAVOR_ALLOCATE == module->flavor) {
+                ompi_osc_rdma_region_t *region = (ompi_osc_rdma_region_t *) module->state->regions;
+                module->state->disp_unit = module->disp_unit;
+                module->state->region_count = 1;
+                region->base = state_region->base + my_base_offset;
+                region->len = size;
+                if (module->selected_btl->btl_register_mem) {
+                    memcpy (region->btl_handle_data, state_region->btl_handle_data, module->selected_btl->btl_registration_handle_size);
+                }
             }
         }
 
-        /* synchronization to make sure all ranks have set up their region data */
+        /* synchronization to make sure all ranks have attached and set up their region data */
         ret = synchronize_errorcode(ret, shared_comm);
+
+        if (0 == local_rank) {
+            /* unlink the shared memory backing file */
+            opal_shmem_unlink (&module->seg_ds);
+        }
+
         if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
             break;
         }
