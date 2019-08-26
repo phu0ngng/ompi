@@ -40,6 +40,7 @@ typedef struct ompi_osc_ucx_component {
     int num_incomplete_req_ops;
     int num_modules;
     unsigned int priority;
+    bool acc_single_intrinsic;
 } ompi_osc_ucx_component_t;
 
 OMPI_DECLSPEC extern ompi_osc_ucx_component_t mca_osc_ucx_component;
@@ -122,6 +123,7 @@ typedef struct ompi_osc_ucx_module {
     uint64_t req_result;
     int *start_grp_ranks;
     bool lock_all_is_nocheck;
+    bool acc_single_intrinsic;
 } ompi_osc_ucx_module_t;
 
 typedef enum locktype {

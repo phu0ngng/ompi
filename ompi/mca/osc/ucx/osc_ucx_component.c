@@ -44,6 +44,7 @@ static int component_query(struct ompi_win_t *win, void **base, size_t size, int
 static int component_select(struct ompi_win_t *win, void **base, size_t size, int disp_unit,
                             struct ompi_communicator_t *comm, struct opal_info_t *info,
                             int flavor, int *model);
+static bool check_config_value_bool (char *key, opal_info_t *info);
 static void ompi_osc_ucx_unregister_progress(void);
 
 ompi_osc_ucx_component_t mca_osc_ucx_component = {
@@ -69,7 +70,8 @@ ompi_osc_ucx_component_t mca_osc_ucx_component = {
     .ucp_worker             = NULL,
     .env_initialized        = false,
     .num_incomplete_req_ops = 0,
-    .num_modules            = 0
+    .num_modules            = 0,
+    .acc_single_intrinsic   = false
 };
 
 ompi_osc_ucx_module_t ompi_osc_ucx_module_template = {
@@ -130,6 +132,15 @@ static int component_register(void) {
     (void) mca_base_component_var_register(&mca_osc_ucx_component.super.osc_version, "priority", description_str,
                                            MCA_BASE_VAR_TYPE_UNSIGNED_INT, NULL, 0, 0, OPAL_INFO_LVL_3,
                                            MCA_BASE_VAR_SCOPE_GROUP, &mca_osc_ucx_component.priority);
+    free(description_str);
+
+    mca_osc_ucx_component.acc_single_intrinsic = false;
+    asprintf(&description_str, "Enable optimizations for MPI_Fetch_and_op, MPI_Accumulate, etc for codes "
+             "that will not use anything more than a single predefined datatype (default: %s)",
+             mca_osc_ucx_component.acc_single_intrinsic  ? "true" : "false");
+    (void) mca_base_component_var_register(&mca_osc_ucx_component.super.osc_version, "acc_single_intrinsic",
+                                           description_str, MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0, OPAL_INFO_LVL_5,
+                                           MCA_BASE_VAR_SCOPE_GROUP, &mca_osc_ucx_component.acc_single_intrinsic);
     free(description_str);
 
     opal_common_ucx_mca_var_register(&mca_osc_ucx_component.super.osc_version);
@@ -439,6 +450,8 @@ select_unlock:
     asprintf(&name, "ucx window %d", ompi_comm_get_cid(module->comm));
     ompi_win_set_name(win, name);
     free(name);
+
+    module->acc_single_intrinsic = check_config_value_bool ("acc_single_intrinsic", info);
 
     module->flavor = flavor;
     module->size = size;
@@ -899,4 +912,27 @@ int ompi_osc_ucx_free(struct ompi_win_t *win) {
     ompi_osc_ucx_unregister_progress();
 
     return ret;
+}
+
+
+/* look up parameters for configuring this window.  The code first
+   looks in the info structure passed by the user, then it checks
+   for a matching MCA variable. */
+static bool check_config_value_bool (char *key, opal_info_t *info)
+{
+    int ret, flag, param;
+    bool result = false;
+    const bool *flag_value = &result;
+
+    ret = opal_info_get_bool (info, key, &result, &flag);
+    if (OMPI_SUCCESS == ret && flag) {
+        return result;
+    }
+
+    param = mca_base_var_find("ompi", "osc", "ucx", key);
+    if (0 <= param) {
+        (void) mca_base_var_get_value(param, &flag_value, NULL, NULL);
+    }
+
+    return flag_value[0];
 }
