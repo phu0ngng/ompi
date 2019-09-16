@@ -66,6 +66,19 @@ static inline int check_sync_state(ompi_osc_ucx_module_t *module, int target,
     return OMPI_SUCCESS;
 }
 
+typedef struct {
+  size_t   dt_bytes;
+  uint64_t result_val;
+  void    *result_addr;
+} cas_result_handle_t;
+
+static void cas_result_cb(void *data) {
+  cas_result_handle_t *cas_result = (cas_result_handle_t*)data;
+  memcpy(cas_result->result_addr, &cas_result->result_val, cas_result->dt_bytes);
+  free(cas_result);
+}
+
+
 static inline int create_iov_list(const void *addr, int count, ompi_datatype_t *datatype,
                                   ucx_iovec_t **ucx_iov, uint32_t *ucx_iov_count) {
     int ret = OMPI_SUCCESS;
@@ -364,15 +377,15 @@ static int do_atomic_op_replace_sum(
         opcode = UCP_ATOMIC_FETCH_OP_FADD;
     }
 
+    opal_common_ucx_user_req_handler_t user_req_cb = NULL;
+    void* user_req_ptr = NULL;
     for (int i = 0; i < origin_count; ++i) {
         uint64_t value = 0;
-        opal_common_ucx_user_req_handler_t user_req_cb = NULL;
-        void* user_req_ptr = NULL;
         if ((origin_count - 1) == i && NULL != ucx_req) {
             // the last item is used to feed the request, if needed
             user_req_cb = &req_completion;
             user_req_ptr = ucx_req;
-            // issue a fence if this is the last and not the only element
+            // issue a fence if this is the last but not the only element
             if (0 < i) {
                 ret = opal_common_ucx_wpmem_fence(module->mem);
                 if (ret != OMPI_SUCCESS) {
@@ -431,7 +444,6 @@ static int do_atomic_op_cswap(
         }
     }
 
-    /* JS: can we parallelize this loop and make it implicit in the request? */
     for (int i = 0; i < origin_count; ++i) {
 
         uint64_t tmp_val;
@@ -450,6 +462,7 @@ static int do_atomic_op_cswap(
             return ret;
           }
 
+        /* JS: move this loop into the request to overlap multiple cas operations? */
         do {
 
             tmp_val = target_val;
@@ -483,8 +496,10 @@ static int do_atomic_op_cswap(
         remote_addr += origin_dt_bytes;
     }
 
-    // nothing to wait for so mark the request as completed
-    ompi_request_complete(&ucx_req->super, true);
+    if (NULL != ucx_req) {
+        // nothing to wait for so mark the request as completed
+        ompi_request_complete(&ucx_req->super, true);
+    }
 
     return ret;
 }
@@ -629,6 +644,7 @@ int ompi_osc_ucx_get(void *origin_addr, int origin_count,
     }
 }
 
+static
 int accumulate_req(const void *origin_addr, int origin_count,
                    struct ompi_datatype_t *origin_dt,
                    int target, ptrdiff_t target_disp, int target_count,
@@ -759,8 +775,10 @@ int accumulate_req(const void *origin_addr, int origin_count,
         free(temp_addr_holder);
     }
 
-    // nothing to wait for, mark request as completed
-    ompi_request_complete(&ucx_req->super, true);
+    if (NULL != ucx_req) {
+        // nothing to wait for, mark request as completed
+        ompi_request_complete(&ucx_req->super, true);
+    }
 
     return end_atomicity(module, target);
 }
@@ -803,12 +821,33 @@ int ompi_osc_ucx_compare_and_swap(const void *origin_addr, const void *compare_a
     }
 
     ompi_datatype_type_size(dt, &dt_bytes);
-    ret = opal_common_ucx_wpmem_cmpswp(module->mem,*(uint64_t *)compare_addr,
-                                     *(uint64_t *)origin_addr, target,
-                                     result_addr, dt_bytes, remote_addr);
+    if (sizeof(uint64_t) < dt_bytes) {
+        return OMPI_ERR_NOT_SUPPORTED;
+    }
+
+    uint64_t origin_val;
+    memcpy(&origin_val, origin_addr, dt_bytes);
+
+    // the completion handler copies the returned value into the result address
+    // and free's the memory
+    cas_result_handle_t *cas_result = malloc(sizeof(*cas_result));
+    cas_result->dt_bytes = dt_bytes;
+    cas_result->result_addr = result_addr;
+    memcpy(&cas_result->result_val, compare_addr, dt_bytes);
+    ret = opal_common_ucx_wpmem_fetch_nb(module->mem, UCP_ATOMIC_FETCH_OP_CSWAP,
+                                         origin_val, target,
+                                         &cas_result->result_val, dt_bytes, remote_addr,
+                                         &cas_result_cb, cas_result);
 
     if (module->acc_single_intrinsic) {
         return ret;
+    }
+
+    // fence before releasing the accumulate lock
+    ret = opal_common_ucx_wpmem_fence(module->mem);
+    if (ret != OMPI_SUCCESS) {
+        OSC_UCX_VERBOSE(1, "opal_common_ucx_mem_fence failed: %d", ret);
+        // don't return error, try to release the accumulate lock
     }
 
     return end_atomicity(module, target);
@@ -1007,8 +1046,10 @@ int get_accumulate_req(const void *origin_addr, int origin_count,
         }
     }
 
-    // nothing to wait for, mark request as completed
-    ompi_request_complete(&ucx_req->super, true);
+    if (NULL != ucx_req) {
+        // nothing to wait for, mark request as completed
+        ompi_request_complete(&ucx_req->super, true);
+    }
 
 
     return end_atomicity(module, target);
