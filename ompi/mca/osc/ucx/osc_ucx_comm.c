@@ -66,19 +66,6 @@ static inline int check_sync_state(ompi_osc_ucx_module_t *module, int target,
     return OMPI_SUCCESS;
 }
 
-typedef struct {
-  size_t   dt_bytes;
-  uint64_t result_val;
-  void    *result_addr;
-} cas_result_handle_t;
-
-static void cas_result_cb(void *data) {
-  cas_result_handle_t *cas_result = (cas_result_handle_t*)data;
-  memcpy(cas_result->result_addr, &cas_result->result_val, cas_result->dt_bytes);
-  free(cas_result);
-}
-
-
 static inline int create_iov_list(const void *addr, int count, ompi_datatype_t *datatype,
                                   ucx_iovec_t **ucx_iov, uint32_t *ucx_iov_count) {
     int ret = OMPI_SUCCESS;
@@ -825,19 +812,13 @@ int ompi_osc_ucx_compare_and_swap(const void *origin_addr, const void *compare_a
         return OMPI_ERR_NOT_SUPPORTED;
     }
 
-    uint64_t origin_val;
-    memcpy(&origin_val, origin_addr, dt_bytes);
-
-    // the completion handler copies the returned value into the result address
-    // and free's the memory
-    cas_result_handle_t *cas_result = malloc(sizeof(*cas_result));
-    cas_result->dt_bytes = dt_bytes;
-    cas_result->result_addr = result_addr;
-    memcpy(&cas_result->result_val, compare_addr, dt_bytes);
+    uint64_t compare_val;
+    memcpy(&compare_val, compare_addr, dt_bytes);
+    memcpy(result_addr, origin_addr, dt_bytes);
     ret = opal_common_ucx_wpmem_fetch_nb(module->mem, UCP_ATOMIC_FETCH_OP_CSWAP,
-                                         origin_val, target,
-                                         &cas_result->result_val, dt_bytes, remote_addr,
-                                         &cas_result_cb, cas_result);
+                                         compare_val, target,
+                                         result_addr, dt_bytes, remote_addr,
+                                         NULL, NULL);
 
     if (module->acc_single_intrinsic) {
         return ret;
