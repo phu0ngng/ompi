@@ -109,7 +109,7 @@ int ompi_osc_ucx_lock(int lock_type, int target, int assert, struct ompi_win_t *
 
     module->epoch_type.access = PASSIVE_EPOCH;
     module->lock_count++;
-    assert(module->lock_count <= ompi_comm_size(module->comm));
+    //assert(module->lock_count <= ompi_comm_size(module->comm));
 
     lock = OBJ_NEW(ompi_osc_ucx_lock_t);
     lock->target_rank = target;
@@ -154,9 +154,11 @@ int ompi_osc_ucx_unlock(int target, struct ompi_win_t *win) {
     opal_hash_table_remove_value_uint32(&module->outstanding_locks,
                                         (uint32_t)target);
 
+    if (module->mem != NULL) {
     ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_EP, target);
     if (ret != OMPI_SUCCESS) {
         return ret;
+    }
     }
 
     if (lock->is_nocheck == false) {
@@ -170,7 +172,7 @@ int ompi_osc_ucx_unlock(int target, struct ompi_win_t *win) {
     OBJ_RELEASE(lock);
 
     module->lock_count--;
-    assert(module->lock_count >= 0);
+    //assert(module->lock_count >= 0);
     if (module->lock_count == 0) {
         module->epoch_type.access = NONE_EPOCH;
     }
@@ -226,9 +228,11 @@ int ompi_osc_ucx_unlock_all(struct ompi_win_t *win) {
 
     assert(module->lock_count == 0);
 
-    ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_WORKER, 0);
-    if (ret != OMPI_SUCCESS) {
-        return ret;
+    if (module->mem != NULL) {
+      ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_WORKER, 0);
+      if (ret != OMPI_SUCCESS) {
+          return ret;
+      }
     }
 
     if (!module->lock_all_is_nocheck) {
@@ -271,6 +275,8 @@ int ompi_osc_ucx_flush(int target, struct ompi_win_t *win) {
         return OMPI_ERR_RMA_SYNC;
     }
 
+    if (module->mem == NULL) return ret;
+
     ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_EP, target);
     if (ret != OMPI_SUCCESS) {
         return ret;
@@ -287,6 +293,8 @@ int ompi_osc_ucx_flush_all(struct ompi_win_t *win) {
         module->epoch_type.access != PASSIVE_ALL_EPOCH) {
         return OMPI_ERR_RMA_SYNC;
     }
+
+    if (module->mem == NULL) return ret;
 
     ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_WORKER, 0);
     if (ret != OMPI_SUCCESS) {

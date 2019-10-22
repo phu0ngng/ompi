@@ -685,7 +685,9 @@ int ompi_osc_ucx_free(struct ompi_win_t *win) {
     }
     OBJ_DESTRUCT(&module->pending_posts);
 
-    opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_WORKER, 0);
+    if (module->mem != NULL) {
+        opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_WORKER, 0);
+    }
 
     ret = module->comm->c_coll->coll_barrier(module->comm,
                                              module->comm->c_coll->coll_barrier_module);
@@ -701,9 +703,11 @@ int ompi_osc_ucx_free(struct ompi_win_t *win) {
       return ret;
     }
 
+    if (module->mem != NULL) {
     ret = opal_common_ucx_wpmem_free(module->mem);
     if (ret != OMPI_SUCCESS) {
       return ret;
+    }
     }
 
     opal_common_ucx_wpctx_release(module->ctx);

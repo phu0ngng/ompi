@@ -115,7 +115,7 @@ OPAL_DECLSPEC void opal_common_ucx_mca_deregister(void)
 {
     /* unregister only on last deregister */
     opal_common_ucx.registered--;
-    assert(opal_common_ucx.registered >= 0);
+    //assert(opal_common_ucx.registered >= 0);
     if (opal_common_ucx.registered) {
         return;
     }

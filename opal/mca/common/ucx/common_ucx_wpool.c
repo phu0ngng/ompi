@@ -83,7 +83,7 @@ _winfo_reset(opal_common_ucx_winfo_t *winfo)
         winfo->inflight_req = UCS_OK;
     }
 
-    assert(winfo->global_inflight_ops == 0);
+    //assert(winfo->global_inflight_ops == 0);
 
     if(winfo->comm_size != 0) {
         size_t i;
@@ -91,7 +91,7 @@ _winfo_reset(opal_common_ucx_winfo_t *winfo)
             if (NULL != winfo->endpoints[i]){
                 ucp_ep_destroy(winfo->endpoints[i]);
             }
-            assert(winfo->inflight_ops[i] == 0);
+            //assert(winfo->inflight_ops[i] == 0);
         }
         free(winfo->endpoints);
         free(winfo->inflight_ops);
@@ -125,7 +125,7 @@ opal_common_ucx_wpool_allocate(void)
 OPAL_DECLSPEC void
 opal_common_ucx_wpool_free(opal_common_ucx_wpool_t *wpool)
 {
-    assert(wpool->refcnt == 0);
+    //assert(wpool->refcnt == 0);
     free(wpool);
 }
 
@@ -631,9 +631,9 @@ static int _comm_ucx_wpmem_map(opal_common_ucx_wpool_t *wpool,
         goto error;
     }
 
-    assert(mem_attrs.length >= size);
+    //assert(mem_attrs.length >= size);
     if (mem_type != OPAL_COMMON_UCX_MEM_ALLOCATE_MAP) {
-        assert(mem_attrs.address == (*base));
+        //assert(mem_attrs.address == (*base));
     } else {
         (*base) = mem_attrs.address;
     }
@@ -782,7 +782,7 @@ static void _common_ucx_tls_cleanup(_tlocal_table_t *tls)
     size = tls->ctx_tbl_size;
     for (i = 0; i < size; i++) {
         if (NULL != tls->ctx_tbl[i]->gctx){
-            assert(tls->ctx_tbl[i]->refcnt == 0);
+            //assert(tls->ctx_tbl[i]->refcnt == 0);
             _tlocal_ctx_record_cleanup(tls->ctx_tbl[i]);
         }
         free(tls->ctx_tbl[i]);
@@ -984,9 +984,9 @@ _tlocal_mem_record_cleanup(_tlocal_mem_t *mem_rec)
         free(mem_rec->mem_tls_ptr);
     }
 
-    assert(mem_rec->ctx_rec != NULL);
+    //assert(mem_rec->ctx_rec != NULL);
     OPAL_ATOMIC_ADD_FETCH32(&mem_rec->ctx_rec->refcnt, -1);
-    assert(mem_rec->ctx_rec->refcnt >= 0);
+    //assert(mem_rec->ctx_rec->refcnt >= 0);
 
     free(mem_rec->mem);
 
