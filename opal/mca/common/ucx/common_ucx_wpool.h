@@ -255,7 +255,7 @@ int opal_common_ucx_wait_request_mt(ucs_status_ptr_t request, const char *msg)
     }
 
     winfo = ((opal_common_ucx_request_t *)request)->winfo;
-    assert(winfo != NULL);
+    //assert(winfo != NULL);
 
     do {
         ctr = opal_common_ucx.progress_iterations;
