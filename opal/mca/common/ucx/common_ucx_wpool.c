@@ -287,11 +287,11 @@ opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
     /* Go over all active workers and progress them
      * TODO: may want to have some partitioning to progress only part of
      * workers */
-    if (!opal_mutex_trylock (&wpool->mutex)) {
+    if (!OPAL_THREAD_TRYLOCK (&wpool->mutex)) {
         OPAL_LIST_FOREACH_SAFE(item, next, &wpool->active_workers,
                                _winfo_list_item_t) {
             opal_common_ucx_winfo_t *winfo = item->ptr;
-            opal_mutex_lock(&winfo->mutex);
+            OPAL_THREAD_LOCK(&winfo->mutex);
             if( OPAL_UNLIKELY(winfo->released) ) {
                 /* Do garbage collection of worker info's if needed */
                 opal_list_remove_item(&wpool->active_workers, &item->super);
@@ -301,9 +301,9 @@ opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
                 /* Progress worker until there are existing events */
                 while(ucp_worker_progress(winfo->worker));
             }
-            opal_mutex_unlock(&winfo->mutex);
+            OPAL_THREAD_UNLOCK(&winfo->mutex);
         }
-        opal_mutex_unlock(&wpool->mutex);
+        OPAL_THREAD_UNLOCK(&wpool->mutex);
     }
 }
 
@@ -320,9 +320,9 @@ _wpool_list_put(opal_common_ucx_wpool_t *wpool, opal_list_t *list,
     }
     item->ptr = winfo;
 
-    opal_mutex_lock(&wpool->mutex);
+    OPAL_THREAD_LOCK(&wpool->mutex);
     opal_list_append(list, &item->super);
-    opal_mutex_unlock(&wpool->mutex);
+    OPAL_THREAD_UNLOCK(&wpool->mutex);
 
     return OPAL_SUCCESS;
 }
@@ -333,12 +333,12 @@ _wpool_list_get(opal_common_ucx_wpool_t *wpool, opal_list_t *list)
     opal_common_ucx_winfo_t *winfo = NULL;
     _winfo_list_item_t *item = NULL;
 
-    opal_mutex_lock(&wpool->mutex);
+    OPAL_THREAD_LOCK(&wpool->mutex);
     if (!opal_list_is_empty(list)) {
         item = (_winfo_list_item_t *)opal_list_get_first(list);
         opal_list_remove_item(list, &item->super);
     }
-    opal_mutex_unlock(&wpool->mutex);
+    OPAL_THREAD_UNLOCK(&wpool->mutex);
 
     if (item != NULL) {
         winfo = item->ptr;
@@ -1185,18 +1185,19 @@ opal_common_ucx_wpmem_flush(opal_common_ucx_wpmem_t *mem,
                           opal_common_ucx_flush_scope_t scope,
                           int target)
 {
-    _ctx_record_list_item_t *item;
+    _ctx_record_list_item_t *item, *next;
     opal_common_ucx_ctx_t *ctx = mem->ctx;
     int rc = OPAL_SUCCESS;
 
-    opal_mutex_lock(&ctx->mutex);
+    OPAL_THREAD_LOCK(&ctx->mutex);
 
-    OPAL_LIST_FOREACH(item, &ctx->tls_workers, _ctx_record_list_item_t) {
+    OPAL_LIST_FOREACH_SAFE(item, next, &ctx->tls_workers, _ctx_record_list_item_t) {
+        OPAL_THREAD_UNLOCK(&ctx->mutex);
         if ((scope == OPAL_COMMON_UCX_SCOPE_EP) &&
                 (NULL == item->ptr->endpoints[target])) {
             continue;
         }
-        opal_mutex_lock(&item->ptr->mutex);
+        OPAL_THREAD_LOCK(&item->ptr->mutex);
         rc = opal_common_ucx_winfo_flush(item->ptr, target, OPAL_COMMON_UCX_FLUSH_B,
                                          scope, NULL);
         switch (scope) {
@@ -1209,15 +1210,16 @@ opal_common_ucx_wpmem_flush(opal_common_ucx_wpmem_t *mem,
             item->ptr->inflight_ops[target] = 0;
             break;
         }
-        opal_mutex_unlock(&item->ptr->mutex);
+        OPAL_THREAD_UNLOCK(&item->ptr->mutex);
 
         if (rc != OPAL_SUCCESS) {
             MCA_COMMON_UCX_ERROR("opal_common_ucx_flush failed: %d",
                                  rc);
             rc = OPAL_ERROR;
         }
+        OPAL_THREAD_LOCK(&ctx->mutex);
     }
-    opal_mutex_unlock(&ctx->mutex);
+    OPAL_THREAD_UNLOCK(&ctx->mutex);
 
     return rc;
 }
