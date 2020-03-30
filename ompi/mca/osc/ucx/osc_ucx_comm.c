@@ -888,12 +888,14 @@ int ompi_osc_ucx_fetch_and_op(const void *origin_addr, void *result_addr,
             }
         }
 
-        ret = opal_common_ucx_wpmem_fetch(module->mem, opcode, value, target,
-                                        (void *)result_addr, dt_bytes, remote_addr);
-
         if (module->acc_single_intrinsic) {
+            ret = opal_common_ucx_wpmem_fetch_nb(module->mem, opcode, value, target,
+                                              (void *)result_addr, dt_bytes, remote_addr, NULL, NULL);
+
             return ret;
         }
+        ret = opal_common_ucx_wpmem_fetch(module->mem, opcode, value, target,
+                                          (void *)result_addr, dt_bytes, remote_addr);
 
         return end_atomicity(module, target);
     } else {
