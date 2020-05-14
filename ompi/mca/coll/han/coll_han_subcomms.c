@@ -82,12 +82,9 @@ static void create_internode_comm_new(ompi_communicator_t *comm,
  * comm: input communicator of the collective
  */
 void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
-                                 mca_coll_han_module_t *han_module)
+                                  mca_coll_han_module_t *han_module)
 {
-    int low_rank, low_size;
-    int up_rank;
-    int w_rank;
-    int w_size;
+    int low_rank, low_size, up_rank, w_rank, w_size;
     ompi_communicator_t **low_comm = &(han_module->sub_comm[INTRA_NODE]);
     ompi_communicator_t **up_comm = &(han_module->sub_comm[INTER_NODE]);
     const int *origin_priority;
@@ -97,7 +94,6 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
 
     mca_coll_base_module_allreduce_fn_t old_allreduce;
     mca_coll_base_module_t *old_allreduce_module;
-
     mca_coll_base_module_allgather_fn_t old_allgather;
     mca_coll_base_module_t *old_allgather_module;
 
@@ -208,13 +204,13 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
      * vrank
      */
     comm->c_coll->coll_allgather(&vrank,
-                                1,
-                                MPI_INT,
-                                vranks,
-                                1,
-                                MPI_INT,
-                                comm,
-                                comm->c_coll->coll_allgather_module);
+                                 1,
+                                 MPI_INT,
+                                 vranks,
+                                 1,
+                                 MPI_INT,
+                                 comm,
+                                 comm->c_coll->coll_allgather_module);
 
     /*
      * Set the cached info
@@ -227,7 +223,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     mca_base_var_set_value(han_var_id, origin_priority, sizeof(int),
                            MCA_BASE_VAR_SOURCE_SET, NULL);
 
-    /* Put allreduce, allgather, reduce and bcast back */
+    /* Put allreduce, allgather, reduce, bcast and gather back */
     comm->c_coll->coll_allreduce = old_allreduce;
     comm->c_coll->coll_allreduce_module = old_allreduce_module;
 
@@ -353,12 +349,9 @@ static void create_internode_comm(ompi_communicator_t *comm,
  * comm: input communicator of the collective
  */
 void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
-                                 mca_coll_han_module_t *han_module)
+                              mca_coll_han_module_t *han_module)
 {
-    int low_rank, low_size;
-    int up_rank;
-    int w_rank;
-    int w_size;
+    int low_rank, low_size, up_rank, w_rank, w_size;
     ompi_communicator_t **low_comms;
     ompi_communicator_t **up_comms;
     const int *origin_priority;
@@ -368,30 +361,66 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
 
     mca_coll_base_module_allreduce_fn_t old_allreduce;
     mca_coll_base_module_t *old_allreduce_module;
+
     mca_coll_base_module_allgather_fn_t old_allgather;
     mca_coll_base_module_t *old_allgather_module;
 
+    mca_coll_base_module_bcast_fn_t old_bcast;
+    mca_coll_base_module_t *old_bcast_module;
+
+    mca_coll_base_module_gather_fn_t old_gather;
+    mca_coll_base_module_t *old_gather_module;
+
+    mca_coll_base_module_reduce_fn_t old_reduce;
+    mca_coll_base_module_t *old_reduce_module;
+
     /* use cached communicators if possible */
     if (han_module->cached_comm == comm &&
-                han_module->cached_low_comms != NULL &&
-                han_module->cached_up_comms != NULL &&
-                han_module->cached_vranks != NULL) {
+        han_module->cached_low_comms != NULL &&
+        han_module->cached_up_comms != NULL &&
+        han_module->cached_vranks != NULL) {
         return;
     }
 
-    /* We cannot use han allreduce and allgather without sub-communicators
-     * Temporary set previous ones */
+    /*
+     * We cannot use han allreduce and allgather without sub-communicators
+     * Temporary set previous ones
+     *
+     * Allgather is used to compute vranks
+     * Allreduce is used by ompi_comm_split_type in create_intranode_comm_new
+     * Reduce + Bcast may be called by the allreduce implementation
+     * Gather + Bcast may be called by the allgather implementation
+     */
     old_allreduce = comm->c_coll->coll_allreduce;
     old_allreduce_module = comm->c_coll->coll_allreduce_module;
 
     old_allgather = comm->c_coll->coll_allgather;
     old_allgather_module = comm->c_coll->coll_allgather_module;
 
+    old_reduce = comm->c_coll->coll_reduce;
+    old_reduce_module = comm->c_coll->coll_reduce_module;
+
+    old_bcast = comm->c_coll->coll_bcast;
+    old_bcast_module = comm->c_coll->coll_bcast_module;
+
+    old_gather = comm->c_coll->coll_gather;
+    old_gather_module = comm->c_coll->coll_gather_module;
+
     comm->c_coll->coll_allreduce = han_module->previous_allreduce;
     comm->c_coll->coll_allreduce_module = han_module->previous_allreduce_module;
 
     comm->c_coll->coll_allgather = han_module->previous_allgather;
     comm->c_coll->coll_allgather_module = han_module->previous_allgather_module;
+
+    comm->c_coll->coll_reduce = han_module->previous_reduce;
+    comm->c_coll->coll_reduce_module = han_module->previous_reduce_module;
+
+    comm->c_coll->coll_bcast = han_module->previous_bcast;
+    comm->c_coll->coll_bcast_module = han_module->previous_bcast_module;
+
+    comm->c_coll->coll_gather = han_module->previous_gather;
+    comm->c_coll->coll_gather_module = han_module->previous_gather_module;
+
 
     /* create communicators if there is no cached communicator */
 
@@ -479,12 +508,21 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     mca_base_var_set_value(han_var_id, origin_priority, sizeof(int),
                            MCA_BASE_VAR_SOURCE_SET, NULL);
 
-    /* Put allreduce and allgather back */
+    /* Put allreduce, allgather, reduce, bcast and gather back */
     comm->c_coll->coll_allreduce = old_allreduce;
     comm->c_coll->coll_allreduce_module = old_allreduce_module;
 
     comm->c_coll->coll_allgather = old_allgather;
     comm->c_coll->coll_allgather_module = old_allgather_module;
+
+    comm->c_coll->coll_reduce = old_reduce;
+    comm->c_coll->coll_reduce_module = old_reduce_module;
+
+    comm->c_coll->coll_bcast = old_bcast;
+    comm->c_coll->coll_bcast_module = old_bcast_module;
+
+    comm->c_coll->coll_gather = old_gather;
+    comm->c_coll->coll_gather_module = old_gather_module;
 }
 
 

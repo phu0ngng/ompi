@@ -52,7 +52,6 @@ static void mca_coll_han_topo_print(int *topo,
                                        struct ompi_communicator_t *comm,
                                        int num_topo_level);
 
-
 /*
  * takes the number part of a host: hhh2031 -->2031
  */
@@ -81,8 +80,8 @@ static int mca_coll_han_hostname_to_number(char* hostname, int size)
  * processes virtual topids
  */
 static void mca_coll_han_topo_get(int *topo,
-                                     struct ompi_communicator_t* comm,
-                                     int num_topo_level)
+                                  struct ompi_communicator_t* comm,
+                                  int num_topo_level)
 {
     int *self_topo = (int *)malloc(sizeof(int) * num_topo_level);
     char hostname[1024];
@@ -126,7 +125,7 @@ static void mca_coll_han_topo_get(int *topo,
  *
  */
 static void mca_coll_han_topo_sort(int *topo, int start, int end,
-                                      int level, int num_topo_level)
+                                   int level, int num_topo_level)
 {
     int i, j;
     int min, min_loc;
@@ -173,11 +172,11 @@ static void mca_coll_han_topo_sort(int *topo, int start, int end,
         } else if (i == end) {
             new_end = end;
             mca_coll_han_topo_sort(topo, new_start, new_end, level + 1,
-                                      num_topo_level);
+                                   num_topo_level);
         } else if (last != topo[i * num_topo_level + level]) {
             new_end = i - 1;
             mca_coll_han_topo_sort(topo, new_start, new_end, level + 1,
-                                      num_topo_level);
+                                   num_topo_level);
             new_start = i;
             last = topo[i * num_topo_level + level];
         }
@@ -197,12 +196,13 @@ static void mca_coll_han_topo_sort(int *topo, int start, int end,
  *   | host_id0 | rank0 | host_id1 | rank1 | .... | host_idX | rankX | ... |
  *   +----------+-------+----------+-------+------+----------+-------+-----+
  */
-static bool mca_coll_han_topo_is_mapbycore(int *topo,
-                                              struct ompi_communicator_t *comm,
-                                              int num_topo_level)
+static bool
+mca_coll_han_topo_is_mapbycore(int *topo,
+                               struct ompi_communicator_t *comm,
+                               int num_topo_level)
 {
-    int i;
     int size = ompi_comm_size(comm);
+    int i;
 
     for (i = 1; i < size; i++) {
         /*
@@ -223,12 +223,15 @@ static bool mca_coll_han_topo_is_mapbycore(int *topo,
 }
 
 /* The topo is supposed sorted by host */
-static bool mca_coll_han_topo_are_ppn_imbalanced(int *topo,
-                            struct ompi_communicator_t *comm,
-                            int num_topo_level){
-    int i;
+static bool
+mca_coll_han_topo_are_ppn_imbalanced(int *topo,
+                                     struct ompi_communicator_t *comm,
+                                     int num_topo_level)
+{
     int size = ompi_comm_size(comm);
-    if (size < 2){
+    int i;
+
+    if (size < 2) {
         return false;
     }
     int ppn;
@@ -236,37 +239,37 @@ static bool mca_coll_han_topo_are_ppn_imbalanced(int *topo,
 
     /* Find the ppn for the first node */
     for (i = 1; i < size; i++) {
-        if (topo[i * num_topo_level] != last_host){
+        if (topo[i * num_topo_level] != last_host) {
             break;
         }
     }
     ppn = i;
 
     /* All on one node */
-    if ( size == ppn){
+    if( size == ppn ) {
         return false;
     }
     /* Trivial case */
-    if (size % ppn != 0){
+    if( size % ppn != 0 ) {
         return true;
     }
 
     last_host = topo[ppn * num_topo_level];
     /* Check that the 2nd and next hosts also this ppn. Since the topo is sorted
      * one just need to jump ppn ranks to check the supposed switch of host */
-    for (i = 2 * ppn; i < size; i += ppn ){
+    for (i = 2 * ppn; i < size; i += ppn ) {
         /* the list of ranks for the last known host have ended before */
-        if (topo[(i-1) * num_topo_level] != last_host){
+        if (topo[(i-1) * num_topo_level] != last_host) {
             return true;
         }
         /* the list of ranks for the last known host are bigger than excpected */
-        if (topo[(i-1) * num_topo_level] == topo[i*num_topo_level]){
+        if (topo[(i-1) * num_topo_level] == topo[i*num_topo_level]) {
             return true;
         }
         last_host = topo[i * num_topo_level];
     }
     /* Check the last host */
-    if (topo[(size-1) * num_topo_level] != last_host){
+    if (topo[(size-1) * num_topo_level] != last_host) {
         return true;
     }
 
@@ -280,12 +283,12 @@ static bool mca_coll_han_topo_are_ppn_imbalanced(int *topo,
  *
  * @param num_topo_level (IN)   Number of the topological levels
  */
-int *mca_coll_han_topo_init(struct ompi_communicator_t *comm,
-                               mca_coll_han_module_t *han_module,
-                               int num_topo_level)
+int*
+mca_coll_han_topo_init(struct ompi_communicator_t *comm,
+                       mca_coll_han_module_t *han_module,
+                       int num_topo_level)
 {
-    int size;
-    int *topo;
+    int size, *topo;
 
     size = ompi_comm_size(comm);
 
@@ -328,17 +331,17 @@ int *mca_coll_han_topo_init(struct ompi_communicator_t *comm,
     return topo;
 }
 
-static void mca_coll_han_topo_print(int *topo,
-                                       struct ompi_communicator_t *comm,
-                                       int num_topo_level)
+static void
+mca_coll_han_topo_print(int *topo,
+                        struct ompi_communicator_t *comm,
+                        int num_topo_level)
 {
     int rank = ompi_comm_rank(comm);
     int size = ompi_comm_size(comm);
 
     if (rank == 0) {
-        int i;
-        OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: Han Scatter topo: ", rank));
-        for (i=0; i<size*num_topo_level; i++) {
+        OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: Han topo: ", rank));
+        for( int i = 0; i < size*num_topo_level; i++ ) {
             OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "%d ", topo[i]));
         }
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "\n"));

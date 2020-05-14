@@ -15,33 +15,37 @@
 #include "ompi/mca/pml/pml.h"
 #include "coll_han_trigger.h"
 
-void mac_coll_han_set_reduce_argu(mca_reduce_argu_t * argu, mca_coll_task_t * cur_task, void *sbuf, void *rbuf,
-                                  int seg_count, struct ompi_datatype_t *dtype, struct ompi_op_t *op,
-                                  int root_up_rank, int root_low_rank,
-                                  struct ompi_communicator_t *up_comm,
-                                  struct ompi_communicator_t *low_comm,
-                                  int num_segments, int cur_seg, int w_rank, int last_seg_count,
-                                  bool noop)
+static int mca_coll_han_reduce_t0_task(void *task_args);
+static int mca_coll_han_reduce_t1_task(void *task_args);
+
+static inline void
+mca_coll_han_set_reduce_args(mca_coll_han_reduce_args_t * args, mca_coll_task_t * cur_task, void *sbuf, void *rbuf,
+                             int seg_count, struct ompi_datatype_t *dtype, struct ompi_op_t *op,
+                             int root_up_rank, int root_low_rank,
+                             struct ompi_communicator_t *up_comm,
+                             struct ompi_communicator_t *low_comm,
+                             int num_segments, int cur_seg, int w_rank, int last_seg_count,
+                             bool noop)
 {
-    argu->cur_task = cur_task;
-    argu->sbuf = sbuf;
-    argu->rbuf = rbuf;
-    argu->seg_count = seg_count;
-    argu->dtype = dtype;
-    argu->op = op;
-    argu->root_low_rank = root_low_rank;
-    argu->root_up_rank = root_up_rank;
-    argu->up_comm = up_comm;
-    argu->low_comm = low_comm;
-    argu->num_segments = num_segments;
-    argu->cur_seg = cur_seg;
-    argu->w_rank = w_rank;
-    argu->last_seg_count = last_seg_count;
-    argu->noop = noop;
+    args->cur_task = cur_task;
+    args->sbuf = sbuf;
+    args->rbuf = rbuf;
+    args->seg_count = seg_count;
+    args->dtype = dtype;
+    args->op = op;
+    args->root_low_rank = root_low_rank;
+    args->root_up_rank = root_up_rank;
+    args->up_comm = up_comm;
+    args->low_comm = low_comm;
+    args->num_segments = num_segments;
+    args->cur_seg = cur_seg;
+    args->w_rank = w_rank;
+    args->last_seg_count = last_seg_count;
+    args->noop = noop;
 }
 
-/* 
- * Each segment of the messsage needs to go though 2 steps to perform MPI_Reduce: 
+/*
+ * Each segment of the messsage needs to go though 2 steps to perform MPI_Reduce:
  *     lb: low level (shared-memory or intra-node) reduce.
 *     ub: upper level (inter-node) reduce
  * Hence, in each iteration, there is a combination of collective operations which is called a task.
@@ -53,13 +57,13 @@ void mac_coll_han_set_reduce_argu(mca_reduce_argu_t * argu, mca_coll_task_t * cu
  * iter 4 |       |       |       |  ur   | task: t1, contains ur
  */
 int
-mca_coll_han_reduce_intra(const void *sbuf, 
+mca_coll_han_reduce_intra(const void *sbuf,
                           void *rbuf,
                           int count,
                           struct ompi_datatype_t *dtype,
                           ompi_op_t* op,
                           int root,
-                          struct ompi_communicator_t *comm, 
+                          struct ompi_communicator_t *comm,
                           mca_coll_base_module_t * module)
 {
     ptrdiff_t extent, lb;
@@ -67,8 +71,8 @@ mca_coll_han_reduce_intra(const void *sbuf,
     int w_rank;
     w_rank = ompi_comm_rank(comm);
     int seg_count = count;
-    size_t typelng;
-    ompi_datatype_type_size(dtype, &typelng);
+    size_t dtype_size;
+    ompi_datatype_type_size(dtype, &dtype_size);
 
     mca_coll_han_module_t *han_module = (mca_coll_han_module_t *) module;
     /* Do not initialize topology if the operation cannot commute */
@@ -95,7 +99,7 @@ mca_coll_han_reduce_intra(const void *sbuf,
     /* use MCA parameters for now */
     low_comm = han_module->cached_low_comms[mca_coll_han_component.han_reduce_low_module];
     up_comm = han_module->cached_up_comms[mca_coll_han_component.han_reduce_up_module];
-    COLL_BASE_COMPUTED_SEGCOUNT(mca_coll_han_component.han_reduce_segsize, typelng,
+    COLL_BASE_COMPUTED_SEGCOUNT(mca_coll_han_component.han_reduce_segsize, dtype_size,
                                 seg_count);
 
     int num_segments = (count + seg_count - 1) / seg_count;
@@ -117,8 +121,8 @@ mca_coll_han_reduce_intra(const void *sbuf,
     /* Create t0 tasks for the first segment */
     mca_coll_task_t *t0 = OBJ_NEW(mca_coll_task_t);
     /* Setup up t0 task arguments */
-    mca_reduce_argu_t *t = malloc(sizeof(mca_reduce_argu_t));
-    mac_coll_han_set_reduce_argu(t, t0, (char *) sbuf, (char *) rbuf, seg_count, dtype,
+    mca_coll_han_reduce_args_t *t = malloc(sizeof(mca_coll_han_reduce_args_t));
+    mca_coll_han_set_reduce_args(t, t0, (char *) sbuf, (char *) rbuf, seg_count, dtype,
                                  op, root_up_rank, root_low_rank, up_comm, low_comm,
                                  num_segments, 0, w_rank, count - (num_segments - 1) * seg_count,
                                  low_rank != root_low_rank);
@@ -158,9 +162,9 @@ prev_reduce_intra:
 }
 
 /* t0 task: issue and wait for the low level reduce of segment 0 */
-int mca_coll_han_reduce_t0_task(void *task_argu)
+int mca_coll_han_reduce_t0_task(void *task_args)
 {
-    mca_reduce_argu_t *t = (mca_reduce_argu_t *) task_argu;
+    mca_coll_han_reduce_args_t *t = (mca_coll_han_reduce_args_t *) task_args;
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: in t0 %d\n", t->w_rank,
                          t->cur_seg));
     OBJ_RELEASE(t->cur_task);
@@ -173,8 +177,8 @@ int mca_coll_han_reduce_t0_task(void *task_argu)
 }
 
 /* t1 task */
-int mca_coll_han_reduce_t1_task(void *task_argu) {
-    mca_reduce_argu_t *t = (mca_reduce_argu_t *) task_argu;
+int mca_coll_han_reduce_t1_task(void *task_args) {
+    mca_coll_han_reduce_args_t *t = (mca_coll_han_reduce_args_t *) task_args;
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: in t1 %d\n", t->w_rank,
                          t->cur_seg));
     OBJ_RELEASE(t->cur_task);
@@ -207,7 +211,7 @@ int mca_coll_han_reduce_t1_task(void *task_argu) {
 
     }
     if (!t->noop && ireduce_req) {
-        ompi_request_wait(&ireduce_req, MPI_STATUSES_IGNORE);
+        ompi_request_wait(&ireduce_req, MPI_STATUS_IGNORE);
     }
 
     return OMPI_SUCCESS;
@@ -349,7 +353,7 @@ mca_coll_han_reduce_reproducible_decision(struct ompi_communicator_t *comm,
                 opal_output_verbose(30, mca_coll_han_component.han_output,
                                     "coll:han:reduce_reproducible: "
                                     "fallback on %s\n",
-                                    components_name[fallback]);
+                                    available_components[fallback].component_name);
             }
             han_module->reproducible_reduce_module = fallback_module;
             han_module->reproducible_reduce = fallback_module->coll_reduce;
