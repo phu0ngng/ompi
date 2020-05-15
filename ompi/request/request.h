@@ -142,7 +142,7 @@ struct ompi_request_t {
     ompi_mpi_object_t req_mpi_object;           /**< Pointer to MPI object that created this request */
     ompi_request_cont_t  *cont_obj;             /**< User-defined continuation state */
     ompi_status_public_t *cont_status;          /**< The status object to set before invoking continuation */
-    opal_atomic_int32_t   cont_num_active;      /**< The number of active continuations registered with a continuation request */
+    int32_t   cont_num_active;      /**< The number of active continuations registered with a continuation request */
     opal_atomic_lock_t    cont_lock;            /**< Lock used for continuation requests */
 };
 

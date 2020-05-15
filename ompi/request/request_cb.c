@@ -15,7 +15,7 @@
 #include "request_cb.h"
 #include "opal/class/opal_fifo.h"
 #include "opal/sys/atomic.h"
-#include "opal/mca/threads/thread_usage.h"
+#include "opal/threads/thread_usage.h"
 
 
 static opal_free_list_t request_callback_freelist;
@@ -32,7 +32,7 @@ static opal_mutex_t request_cont_lock;
 /**
  * Flag indicating whether the progress callback has been registered.
  */
-static opal_atomic_int32_t progress_callback_registered;
+static int32_t progress_callback_registered;
 
 
 static void ompi_request_cont_construct(ompi_request_cont_t* cont)

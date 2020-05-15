@@ -41,7 +41,7 @@ struct ompi_request_cont_t {
     ompi_request_t *cont_req;         /**< The continuation request this continuation is registered with */
     MPI_Continue_cb_t *cont_cb;       /**< The callback function to invoke */
     void *cont_data;                  /**< Continuation state provided by the user */
-    opal_atomic_int32_t num_active;   /**< The number of active operation requests on this callback */
+    int32_t num_active;   /**< The number of active operation requests on this callback */
 };
 
 /* Convenience typedef */
