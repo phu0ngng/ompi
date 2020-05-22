@@ -73,11 +73,11 @@ int ompi_request_default_test(ompi_request_t ** rptr,
             *status = request->req_status;
             status->MPI_ERROR = old_error;
         }
-        if ( request->req_transient) {
-            return request->req_status.MPI_ERROR;
-        }
+
         if( request->req_persistent ) {
-            request->req_state = OMPI_REQUEST_INACTIVE;
+            if (!request->req_transient) {
+                request->req_state = OMPI_REQUEST_INACTIVE;
+            }
             return request->req_status.MPI_ERROR;
         }
         /* If there was an error, don't free the request -- just
@@ -157,11 +157,10 @@ int ompi_request_default_test_any(
                 status->MPI_ERROR = old_error;
             }
 
-            if ( request->req_transient ) {
-                return OMPI_SUCCESS;
-            }
             if( request->req_persistent ) {
-                request->req_state = OMPI_REQUEST_INACTIVE;
+                if (!request->req_transient) {
+                    request->req_state = OMPI_REQUEST_INACTIVE;
+                }
                 return OMPI_SUCCESS;
             }
             /* If there is an error on the request, don't free it */
@@ -247,12 +246,10 @@ int ompi_request_default_test_all(
 #endif
 
             statuses[i] = request->req_status;
-            if (request->req_transient) {
-                /* nothing to do here */
-                continue;
-            }
             if( request->req_persistent ) {
-                request->req_state = OMPI_REQUEST_INACTIVE;
+                if (!request->req_transient) {
+                    request->req_state = OMPI_REQUEST_INACTIVE;
+                }
                 continue;
             }
             /* MPI-2:4.5.1 says that we can return MPI_ERR_IN_STATUS
@@ -285,12 +282,10 @@ int ompi_request_default_test_all(
                 OMPI_CRCP_REQUEST_COMPLETE(request);
             }
 #endif
-            if (request->req_transient) {
-                /* nothing to do here */
-                continue;
-            }
             if( request->req_persistent ) {
-                request->req_state = OMPI_REQUEST_INACTIVE;
+                if (!request->req_transient) {
+                    request->req_state = OMPI_REQUEST_INACTIVE;
+                }
                 continue;
             }
             /* Only free the request if there was no error */
@@ -374,10 +369,10 @@ int ompi_request_default_test_some(
             rc = MPI_ERR_IN_STATUS;
         }
 
-        if (request->req_transient) {
-            /* nothing to do here */
-        } else if( request->req_persistent ) {
-            request->req_state = OMPI_REQUEST_INACTIVE;
+        if( request->req_persistent ) {
+            if (!request->req_transient) {
+                request->req_state = OMPI_REQUEST_INACTIVE;
+            }
         } else {
             /* Only free the request if there was no error */
             if (MPI_SUCCESS == request->req_status.MPI_ERROR) {
