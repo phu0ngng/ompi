@@ -1,5 +1,8 @@
 /* -*- Mode: C; c-basic-offset:4 ; indent-tabs-mode:nil -*- */
 /*
+ * Copyright (c) 2020      The University of Tennessee and The University
+ *                         of Tennessee Research Foundation.  All rights
+ *                         reserved.
  * Copyright (c) 2020      Bull S.A.S. All rights reserved.
  *
  * $COPYRIGHT$
@@ -101,11 +104,8 @@
  * the reader.
  */
 
-BEGIN_C_DECLS
-
 int mca_coll_han_init_dynamic_rules(void);
 void mca_coll_han_free_dynamic_rules(void);
 void mca_coll_han_dump_dynamic_rules(void);
 
-END_C_DECLS
 #endif

@@ -2,7 +2,7 @@
  * Copyright (c) 2004-2005 The Trustees of Indiana University and Indiana
  *                         University Research and Technology
  *                         Corporation.  All rights reserved.
- * Copyright (c) 2004-2016 The University of Tennessee and The University
+ * Copyright (c) 2004-2020 The University of Tennessee and The University
  *                         of Tennessee Research Foundation.  All rights
  *                         reserved.
  * Copyright (c) 2004-2005 High Performance Computing Center Stuttgart,
@@ -268,7 +268,7 @@ int ompi_coll_base_retain_datatypes_w( ompi_request_t *req,
     } else {
         scount = rcount = OMPI_COMM_IS_INTER(comm)?ompi_comm_remote_size(comm):ompi_comm_size(comm);
     }
-   
+
     for (int i=0; i<scount; i++) {
         if (NULL != stypes && NULL != stypes[i] && !ompi_datatype_is_predefined(stypes[i])) {
             OBJ_RETAIN(stypes[i]);
@@ -297,7 +297,8 @@ int ompi_coll_base_retain_datatypes_w( ompi_request_t *req,
     return OMPI_SUCCESS;
 }
 
-static void nbc_req_cons(ompi_coll_base_nbc_request_t *req) {
+static void nbc_req_cons(ompi_coll_base_nbc_request_t *req)
+{
     req->cb.req_complete_cb = NULL;
     req->req_complete_cb_data = NULL;
     req->data.objs.objs[0] = NULL;
@@ -309,35 +310,67 @@ OBJ_CLASS_INSTANCE(ompi_coll_base_nbc_request_t, ompi_request_t, nbc_req_cons, N
 /* File reading functions */
 static void skiptonewline (FILE *fptr, int *fileline)
 {
-    do {
-        char val;
-        int rc; 
+    char val;
+    int rc;
 
+    do {
         rc = fread(&val, 1, 1, fptr);
-        if (0 == rc) return;
-        if ((1 == rc)&&('\n' == val)) {
+        if (0 == rc) {
+            return;
+        }
+        if ('\n' == val) {
             (*fileline)++;
             return;
-        }   
+        }
     } while (1);
 }
 
-long ompi_coll_base_file_getnext (FILE *fptr, int *fileline)
+int ompi_coll_base_file_getnext_long(FILE *fptr, int *fileline, long* val)
 {
-    do {
-        long val;
-        int rc; 
-        char trash;
+    char trash;
+    int rc;
 
-        rc = fscanf(fptr, "%li", &val);
-        if (rc == EOF) return MYEOF;
-        if (1 == rc) return val;
-        /* in all other cases, skip to the end */
+    do {
+        rc = fscanf(fptr, "%li", val);
+        if (rc == EOF) {
+            return -1;
+        }
+        if (1 == rc) {
+            return 0;
+        }
+        /* in all other cases, skip to the end of the token */
         rc = fread(&trash, sizeof(char), 1, fptr);
-        if (rc == EOF) return MYEOF;
+        if (rc == EOF) {
+            return -1;
+        }
         if ('\n' == trash) (*fileline)++;
         if ('#' == trash) {
             skiptonewline (fptr, fileline);
-        }   
+        }
+    } while (1);
+}
+
+int ompi_coll_base_file_getnext_size_t(FILE *fptr, int *fileline, size_t* val)
+{
+    char trash;
+    int rc;
+
+    do {
+        rc = fscanf(fptr, "%" PRIsize_t, val);
+        if (rc == EOF) {
+            return -1;
+        }
+        if (1 == rc) {
+            return 0;
+        }
+        /* in all other cases, skip to the end of the token */
+        rc = fread(&trash, sizeof(char), 1, fptr);
+        if (rc == EOF) {
+            return -1;
+        }
+        if ('\n' == trash) (*fileline)++;
+        if ('#' == trash) {
+            skiptonewline (fptr, fileline);
+        }
     } while (1);
 }

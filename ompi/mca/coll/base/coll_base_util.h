@@ -2,7 +2,7 @@
  * Copyright (c) 2004-2005 The Trustees of Indiana University and Indiana
  *                         University Research and Technology
  *                         Corporation.  All rights reserved.
- * Copyright (c) 2004-2015 The University of Tennessee and The University
+ * Copyright (c) 2004-2020 The University of Tennessee and The University
  *                         of Tennessee Research Foundation.  All rights
  *                         reserved.
  * Copyright (c) 2004-2007 High Performance Computing Center Stuttgart,
@@ -141,8 +141,8 @@ int ompi_coll_base_retain_datatypes_w( ompi_request_t *request,
                                        ompi_datatype_t * const rtypes[]);
 
 /* File reading function */
-#define MYEOF -999
-long ompi_coll_base_file_getnext(FILE *fptr, int *fileline);
+int ompi_coll_base_file_getnext_long(FILE *fptr, int *filelinei, long* val);
+int ompi_coll_base_file_getnext_size_t(FILE *fptr, int *fileline, size_t* val);
 
 END_C_DECLS
 #endif /* MCA_COLL_BASE_UTIL_EXPORT_H */

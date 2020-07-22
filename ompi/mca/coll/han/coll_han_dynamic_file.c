@@ -26,11 +26,13 @@
 
 #include "ompi/mca/coll/base/coll_base_util.h"
 
+#define getnext(fptr, pval)        ompi_coll_base_file_getnext_long(fptr, &fileline, pval)
+#define getnext_size_t(fptr, pval) ompi_coll_base_file_getnext_size_t(fptr, &fileline, pval)
+
 static void check_dynamic_rules(void);
 
 /* Current file line for verbose message */
 static int fileline = 1;
-#define getnext(fptr) ompi_coll_base_file_getnext(fptr, &fileline)
 
 int
 mca_coll_han_init_dynamic_rules(void)
@@ -38,31 +40,30 @@ mca_coll_han_init_dynamic_rules(void)
     /* File management */
     const char *fname;
     FILE *fptr = NULL;
-    int nb_entries = 0;
+    int nb_entries = 0, rc;
 
     /* Loop counters */
     int i, j, k, l;
 
     /* Collective informations */
-    int nb_coll;
-    COLLTYPE_T coll_id;
+    long nb_coll, coll_id;
     collective_rule_t *coll_rules;
 
     /* Topo informations */
-    int nb_topo;
-    TOPO_LVL_T topo_lvl;
+    long nb_topo, topo_lvl;
     topologic_rule_t *topo_rules;
 
     /* Configuration informations */
-    int nb_rules, conf_size;
+    long nb_rules, conf_size;
     configuration_rule_t *conf_rules;
 
     /* Message size informations */
-    int nb_msg_size, msg_size;
+    long nb_msg_size;
+    size_t msg_size;
     msg_size_rule_t *msg_size_rules;
 
     /* Component informations */
-    COMPONENT_T component;
+    long component;
 
     /* If the dynamic rules are not used, do not even read the file */
     if(!mca_coll_han_component.use_dynamic_file_rules) {
@@ -99,13 +100,11 @@ mca_coll_han_init_dynamic_rules(void)
     }
 
     /* The first information of the file is the collective count */
-    nb_coll = getnext(fptr);
-
-    if(nb_coll <= 0) {
+    if( (getnext(fptr, &nb_coll) < 0) || (nb_coll <= 0) ) {
         opal_output_verbose(5, mca_coll_han_component.han_output,
                             "coll:han:mca_coll_han_init_dynamic_rules "
                             "found an error on dynamic rules file %s "
-                            "at line %d: an invalid value %d is given "
+                            "at line %d: an invalid value %ld is given "
                             "for collective count "
                             "or the reader encountered an unexpected EOF\n",
                             fname,
@@ -128,11 +127,10 @@ mca_coll_han_init_dynamic_rules(void)
     /* Iterates on collective rules */
     for(i=0 ; i<nb_coll ; i++) {
         /* Get the collective identifier */
-        coll_id = getnext(fptr);
-        if(coll_id < ALLGATHER || coll_id >= COLLCOUNT) {
+        if( (getnext(fptr, &coll_id) < 0) || (coll_id < ALLGATHER) || (coll_id >= COLLCOUNT)) {
             opal_output_verbose(5, mca_coll_han_component.han_output,
                                 "coll:han:mca_coll_han_init_dynamic_rules "
-                                "invalid collective id %d at line %d: the collective "
+                                "invalid collective id %ld at line %d: the collective "
                                 "must be at least %d and less than %d\n",
                                 coll_id,
                                 fileline,
@@ -147,7 +145,7 @@ mca_coll_han_init_dynamic_rules(void)
             opal_output_verbose(5, mca_coll_han_component.han_output,
                                 "coll:han:mca_coll_han_init_dynamic_rules "
                                 "found an error on dynamic rules file %s "
-                                "read collective id %d at line %d "
+                                "read collective id %ld at line %d "
                                 "but this collective is not implemented yet. "
                                 "This is not an error but this set of rules "
                                 "will not be used\n",
@@ -160,12 +158,11 @@ mca_coll_han_init_dynamic_rules(void)
          * The first information of a collective rule
          * is the number of topologic rules
          */
-        nb_topo = getnext(fptr);
-        if(nb_topo < 0) {
+        if( (getnext(fptr, &nb_topo) < 0) || (nb_topo < 0) ) {
             opal_output_verbose(5, mca_coll_han_component.han_output,
                                 "coll:han:mca_coll_han_init_dynamic_rules "
                                 "found an error on dynamic rules file %s "
-                                "at line %d: an invalid value %d is given "
+                                "at line %d: an invalid value %ld is given "
                                 "for topo level count "
                                 "or the reader encountered an unexpected EOF\n",
                                 fname,
@@ -177,14 +174,14 @@ mca_coll_han_init_dynamic_rules(void)
         }
 
         /* Store the collective rule informations */
-        coll_rules[i].collective_id = coll_id;
+        coll_rules[i].collective_id = (COLLTYPE_T)coll_id;
         coll_rules[i].nb_topologic_levels = nb_topo;
 
         if(0 == nb_topo) {
             opal_output_verbose(5, mca_coll_han_component.han_output,
                                 "coll:han:mca_coll_han_init_dynamic_rules "
                                 "Warning on dynamic rules file %s "
-                                "at line %d: an invalid value %d is given "
+                                "at line %d: an invalid value %ld is given "
                                 "for topo level count\n",
                                 fname,
                                 fileline,
@@ -204,12 +201,11 @@ mca_coll_han_init_dynamic_rules(void)
         /* Iterates on topologic rules */
         for(j=0 ; j<nb_topo ; j++) {
             /* Get the topologic level identifier */
-            topo_lvl = getnext(fptr);
-            if(topo_lvl < INTRA_NODE || topo_lvl >= NB_TOPO_LVL) {
+            if( (getnext(fptr, &topo_lvl) < 0) || (topo_lvl < INTRA_NODE) || (topo_lvl >= NB_TOPO_LVL) ) {
                 opal_output_verbose(5, mca_coll_han_component.han_output,
                                     "coll:han:mca_coll_han_init_dynamic_rules "
                                     "found an error on dynamic rules file %s "
-                                    "at line %d: an invalid topo level %d is given "
+                                    "at line %d: an invalid topo level %ld is given "
                                     "or the reader encountered an unexpected EOF. "
                                     "Topologic level must be at least %d and "
                                     "less than %d\n",
@@ -228,13 +224,12 @@ mca_coll_han_init_dynamic_rules(void)
              * The first information of a topologic rule
              * is the number of configurations
              */
-            nb_rules = getnext(fptr);
-
-            if(nb_rules < 0) {
+            nb_rules = -1;
+            if( (getnext(fptr, &nb_rules) < 0) || (nb_rules < 0) ) {
                 opal_output_verbose(5, mca_coll_han_component.han_output,
                                     "coll:han:mca_coll_han_init_dynamic_rules "
                                     "found an error on dynamic rules file %s "
-                                    "at line %d: an invalid value %d "
+                                    "at line %d: an invalid value %ld "
                                     "is given for rules count "
                                     "or the reader encountered an unexpected EOF\n",
                                     fname,
@@ -248,14 +243,14 @@ mca_coll_han_init_dynamic_rules(void)
 
             /* Store the topologic rule informations */
             topo_rules[j].collective_id = coll_id;
-            topo_rules[j].topologic_level = topo_lvl;
+            topo_rules[j].topologic_level = (TOPO_LVL_T)topo_lvl;
             topo_rules[j].nb_rules = nb_rules;
 
             if(0 == nb_rules) {
                 opal_output_verbose(5, mca_coll_han_component.han_output,
                                     "coll:han:mca_coll_han_init_dynamic_rules "
                                     "Warning on dynamic rules file %s "
-                                    "at line %d: an invalid value %d is given "
+                                    "at line %d: an invalid value %ld is given "
                                     "for configuration rules count\n",
                                     fname,
                                     fileline,
@@ -276,12 +271,10 @@ mca_coll_han_init_dynamic_rules(void)
             /* Iterate on configuration rules */
             for(k=0 ; k<nb_rules ; k++) {
                 /* Get the configuration size */
-                conf_size = getnext(fptr);
-
-                if(conf_size < 1 || (0 == k && conf_size > 1)) {
+                if( (getnext(fptr, &conf_size) < 0) || (conf_size < 1) || (0 == k && conf_size > 1) ) {
                     opal_output_verbose(5, mca_coll_han_component.han_output,
                                         "coll:han:mca_coll_han_init_dynamic_rules "
-                                        "invalid configuration size %d at line %d "
+                                        "invalid configuration size %ld at line %d "
                                         "or the reader encountered an unexpected EOF "
                                         "the configuration size must be at least %d "
                                         "and the first configuration size "
@@ -301,12 +294,11 @@ mca_coll_han_init_dynamic_rules(void)
                  * The first information of a configuration rule
                  * is the number of message size rules
                  */
-                nb_msg_size = getnext(fptr);
-                if(nb_msg_size < 0) {
+                if( (getnext(fptr, &nb_msg_size) < 0) || (nb_msg_size < 0) ) {
                     opal_output_verbose(5, mca_coll_han_component.han_output,
                                         "coll:han:mca_coll_han_init_dynamic_rules "
                                         "found an error on dynamic rules file %s "
-                                        "at line %d: an invalid value %d "
+                                        "at line %d: an invalid value %ld "
                                         "is given for message size rules count "
                                         "or the reader encountered an unexpected EOF\n",
                                         fname,
@@ -329,7 +321,7 @@ mca_coll_han_init_dynamic_rules(void)
                     opal_output_verbose(5, mca_coll_han_component.han_output,
                                         "coll:han:mca_coll_han_init_dynamic_rules "
                                         "Warning on dynamic rules file %s "
-                                        "at line %d: an invalid value %d is given "
+                                        "at line %d: an invalid value %ld is given "
                                         "for message size rules count\n",
                                         fname,
                                         fileline,
@@ -351,14 +343,14 @@ mca_coll_han_init_dynamic_rules(void)
                 /* Iterate on message size rules */
                 for(l=0 ; l<nb_msg_size ; l++) {
                     /* Get the message size */
-                    msg_size = getnext(fptr);
-                    if(msg_size < 0
-                       || (0 ==l && msg_size > 1)) {
+                    rc = getnext_size_t(fptr, &msg_size);
+                    if( (rc < 0) ||
+                        (0 == l && msg_size > 1)) {
                         opal_output_verbose(5, mca_coll_han_component.han_output,
                                             "coll:han:mca_coll_han_init_dynamic_rules "
                                             "found an error on dynamic rules file %s "
-                                            "at line %d: an invalid value %d "
-                                            "is given for message size "
+                                            "at line %d: an invalid value %" PRIsize_t
+                                            " is given for message size "
                                             "or the reader encountered "
                                             "an unexpected EOF. "
                                             "The first message size rule of "
@@ -374,13 +366,13 @@ mca_coll_han_init_dynamic_rules(void)
                     }
 
                     /* Get the component identifier for this message size rule */
-                    component = getnext(fptr);
-                    if(component < SELF || component >= COMPONENTS_COUNT) {
+                    if( (getnext(fptr, &component) < 0) ||
+                        (component < SELF) || (component >= COMPONENTS_COUNT) ) {
                         opal_output_verbose(5, mca_coll_han_component.han_output,
                                             "coll:han:mca_coll_han_init_dynamic_rules "
                                             "found an error on dynamic rules file %s "
                                             "at line %d: an invalid collective "
-                                            "component id %d is given or the "
+                                            "component id %ld is given or the "
                                             "reader encountered an unexpected EOF. "
                                             "Collective component id must be at "
                                             "least %d and less than %d\n",
@@ -401,7 +393,7 @@ mca_coll_han_init_dynamic_rules(void)
                     msg_size_rules[l].topologic_level = topo_lvl;
                     msg_size_rules[l].configuration_size = conf_size;
                     msg_size_rules[l].msg_size = msg_size;
-                    msg_size_rules[l].component = component;
+                    msg_size_rules[l].component = (COMPONENT_T)component;
 
                     nb_entries++;
                 }
@@ -409,7 +401,7 @@ mca_coll_han_init_dynamic_rules(void)
         }
     }
 
-    if(MYEOF != getnext(fptr)) {
+    if( getnext(fptr, &nb_coll) ) {
         opal_output_verbose(5, mca_coll_han_component.han_output,
                             "coll:han:mca_coll_han_init_dynamic_rules "
                             "Warning on file %s at line %d: "
@@ -531,7 +523,8 @@ static void check_dynamic_rules(void)
     configuration_rule_t *conf_rules;
 
     /* Message size informations */
-    int nb_msg_size, msg_size;
+    int nb_msg_size;
+    size_t msg_size;
     msg_size_rule_t *msg_size_rules;
 
     /* Component informations */
@@ -580,7 +573,7 @@ static void check_dynamic_rules(void)
                                             "for collective %d "
                                             "on topological level %d "
                                             "with configuration size %d: "
-                                            "message sizes %d and %d are "
+                                            "message sizes %" PRIsize_t " and %" PRIsize_t " are "
                                             "not sorted by increasing value\n",
                                             coll_id,
                                             topo_lvl,
@@ -597,7 +590,7 @@ static void check_dynamic_rules(void)
                                             "for collective %d "
                                             "on topological level %d "
                                             "with configuration size %d "
-                                            "for message size %d: "
+                                            "for message size %" PRIsize_t ": "
                                             "han collective component %d "
                                             "can only be activated for "
                                             "topology level %d\n",

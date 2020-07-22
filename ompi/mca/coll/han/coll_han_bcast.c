@@ -16,31 +16,35 @@
 #include "ompi/mca/pml/pml.h"
 #include "coll_han_trigger.h"
 
-void mac_coll_han_set_bcast_argu(mca_bcast_argu_t * argu, mca_coll_task_t * cur_task, void *buff,
-                                 int seg_count, struct ompi_datatype_t *dtype,
-                                 int root_up_rank, int root_low_rank,
-                                 struct ompi_communicator_t *up_comm,
-                                 struct ompi_communicator_t *low_comm,
-                                 int num_segments, int cur_seg, int w_rank, int last_seg_count,
-                                 bool noop)
+static int mca_coll_han_bcast_t0_task(void *task_args);
+static int mca_coll_han_bcast_t1_task(void *task_args);
+
+static inline void
+mca_coll_han_set_bcast_args(mca_coll_han_bcast_args_t * args, mca_coll_task_t * cur_task, void *buff,
+                            int seg_count, struct ompi_datatype_t *dtype,
+                            int root_up_rank, int root_low_rank,
+                            struct ompi_communicator_t *up_comm,
+                            struct ompi_communicator_t *low_comm,
+                            int num_segments, int cur_seg, int w_rank, int last_seg_count,
+                            bool noop)
 {
-    argu->cur_task = cur_task;
-    argu->buff = buff;
-    argu->seg_count = seg_count;
-    argu->dtype = dtype;
-    argu->root_low_rank = root_low_rank;
-    argu->root_up_rank = root_up_rank;
-    argu->up_comm = up_comm;
-    argu->low_comm = low_comm;
-    argu->num_segments = num_segments;
-    argu->cur_seg = cur_seg;
-    argu->w_rank = w_rank;
-    argu->last_seg_count = last_seg_count;
-    argu->noop = noop;
+    args->cur_task = cur_task;
+    args->buff = buff;
+    args->seg_count = seg_count;
+    args->dtype = dtype;
+    args->root_low_rank = root_low_rank;
+    args->root_up_rank = root_up_rank;
+    args->up_comm = up_comm;
+    args->low_comm = low_comm;
+    args->num_segments = num_segments;
+    args->cur_seg = cur_seg;
+    args->w_rank = w_rank;
+    args->last_seg_count = last_seg_count;
+    args->noop = noop;
 }
 
-/* 
- * Each segment of the messsage needs to go though 2 steps to perform MPI_Bcast: 
+/*
+ * Each segment of the messsage needs to go though 2 steps to perform MPI_Bcast:
  *     ub: upper level (inter-node) bcast
  *     lb: low level (shared-memory or intra-node) bcast.
  * Hence, in each iteration, there is a combination of collective operations which is called a task.
@@ -58,13 +62,10 @@ mca_coll_han_bcast_intra(void *buff,
                          int root,
                          struct ompi_communicator_t *comm, mca_coll_base_module_t * module)
 {
-    ptrdiff_t extent, lb;
-    ompi_datatype_get_extent(dtype, &lb, &extent);
-    int w_rank;
-    w_rank = ompi_comm_rank(comm);
-    int seg_count = count;
-    size_t typelng;
     mca_coll_han_module_t *han_module = (mca_coll_han_module_t *)module;
+    int seg_count = count, w_rank = ompi_comm_rank(comm);
+    ptrdiff_t extent, lb;
+    size_t dtype_size;
 
     /* Topo must be initialized to know rank distribution which then is used to
      * determine if han can be used */
@@ -77,30 +78,29 @@ mca_coll_han_bcast_intra(void *buff,
                     comm, han_module->previous_bcast_module);
     }
 
-    ompi_datatype_type_size(dtype, &typelng);
+    ompi_datatype_get_extent(dtype, &lb, &extent);
+    ompi_datatype_type_size(dtype, &dtype_size);
 
     /* Create the subcommunicators */
     mca_coll_han_comm_create(comm, han_module);
-    ompi_communicator_t *low_comm;
-    ompi_communicator_t *up_comm;
+    ompi_communicator_t *low_comm, *up_comm;
 
     /* use MCA parameters for now */
     low_comm = han_module->cached_low_comms[mca_coll_han_component.han_bcast_low_module];
     up_comm = han_module->cached_up_comms[mca_coll_han_component.han_bcast_up_module];
-    COLL_BASE_COMPUTED_SEGCOUNT(mca_coll_han_component.han_bcast_segsize, typelng,
+    COLL_BASE_COMPUTED_SEGCOUNT(mca_coll_han_component.han_bcast_segsize, dtype_size,
                                 seg_count);
 
     int num_segments = (count + seg_count - 1) / seg_count;
     OPAL_OUTPUT_VERBOSE((20, mca_coll_han_component.han_output,
-                         "In HAN seg_count %d count %d num_seg %d\n", 
+                         "In HAN seg_count %d count %d num_seg %d\n",
                          seg_count, count, num_segments));
 
     int *vranks = han_module->cached_vranks;
     int low_rank = ompi_comm_rank(low_comm);
     int low_size = ompi_comm_size(low_comm);
 
-    int root_low_rank;
-    int root_up_rank;
+    int root_low_rank, root_up_rank;
     mca_coll_han_get_ranks(vranks, root, low_size, &root_low_rank, &root_up_rank);
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                          "[%d]: root_low_rank %d root_up_rank %d\n", w_rank, root_low_rank,
@@ -109,8 +109,8 @@ mca_coll_han_bcast_intra(void *buff,
     /* Create t0 tasks for the first segment */
     mca_coll_task_t *t0 = OBJ_NEW(mca_coll_task_t);
     /* Setup up t0 task arguments */
-    mca_bcast_argu_t *t = malloc(sizeof(mca_bcast_argu_t));
-    mac_coll_han_set_bcast_argu(t, t0, (char *) buff, seg_count, dtype,
+    mca_coll_han_bcast_args_t *t = malloc(sizeof(mca_coll_han_bcast_args_t));
+    mca_coll_han_set_bcast_args(t, t0, (char *) buff, seg_count, dtype,
                                 root_up_rank, root_low_rank, up_comm, low_comm,
                                 num_segments, 0, w_rank, count - (num_segments - 1) * seg_count,
                                 low_rank != root_low_rank);
@@ -144,33 +144,32 @@ mca_coll_han_bcast_intra(void *buff,
 }
 
 /* t0 task: issue and wait for the upper level ibcast of segment 0 */
-int mca_coll_han_bcast_t0_task(void *task_argu)
+int mca_coll_han_bcast_t0_task(void *task_args)
 {
-    mca_bcast_argu_t *t = (mca_bcast_argu_t *) task_argu;
+    mca_coll_han_bcast_args_t *t = (mca_coll_han_bcast_args_t *) task_args;
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: in t0 %d\n", t->w_rank,
                          t->cur_seg));
     OBJ_RELEASE(t->cur_task);
     if (t->noop) {
         return OMPI_SUCCESS;
-    } else {
-        ptrdiff_t extent, lb;
-        ompi_datatype_get_extent(t->dtype, &lb, &extent);
-        ompi_request_t *ibcast_req;
-        t->up_comm->c_coll->coll_ibcast((char *) t->buff, t->seg_count, t->dtype, t->root_up_rank, 
-                                        t->up_comm, &ibcast_req, t->up_comm->c_coll->coll_ibcast_module);
-        ompi_request_wait(&ibcast_req, MPI_STATUSES_IGNORE);
-        return OMPI_SUCCESS;
     }
+    ptrdiff_t extent, lb;
+    ompi_datatype_get_extent(t->dtype, &lb, &extent);
+    ompi_request_t *ibcast_req;
+    t->up_comm->c_coll->coll_ibcast((char *) t->buff, t->seg_count, t->dtype, t->root_up_rank,
+                                    t->up_comm, &ibcast_req, t->up_comm->c_coll->coll_ibcast_module);
+    ompi_request_wait(&ibcast_req, MPI_STATUS_IGNORE);
+    return OMPI_SUCCESS;
 }
 
-/* t1 task: 
+/* t1 task:
  * 1. issue the upper level ibcast of segment cur_seg + 1
  * 2. issue the low level bcast of segment cur_seg
  * 3. wait for the completion of the ibcast
  */
-int mca_coll_han_bcast_t1_task(void *task_argu)
+int mca_coll_han_bcast_t1_task(void *task_args)
 {
-    mca_bcast_argu_t *t = (mca_bcast_argu_t *) task_argu;
+    mca_coll_han_bcast_args_t *t = (mca_coll_han_bcast_args_t *) task_args;
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: in t1 %d\n", t->w_rank,
                          t->cur_seg));
     OBJ_RELEASE(t->cur_task);
@@ -195,7 +194,7 @@ int mca_coll_han_bcast_t1_task(void *task_argu)
                                     t->low_comm->c_coll->coll_bcast_module);
 
     if (!t->noop && ibcast_req != NULL) {
-        ompi_request_wait(&ibcast_req, MPI_STATUSES_IGNORE);
+        ompi_request_wait(&ibcast_req, MPI_STATUS_IGNORE);
     }
 
     return OMPI_SUCCESS;
@@ -209,20 +208,17 @@ mca_coll_han_bcast_intra_simple(void *buff,
                                 struct ompi_communicator_t *comm,
                                 mca_coll_base_module_t *module)
 {
-    int w_rank;
-    w_rank = ompi_comm_rank(comm);
-
     /* create the subcommunicators */
     mca_coll_han_module_t *han_module = (mca_coll_han_module_t *)module;
     mca_coll_han_comm_create_new(comm, han_module);
     ompi_communicator_t *low_comm = han_module->sub_comm[INTRA_NODE];
     ompi_communicator_t *up_comm = han_module->sub_comm[INTER_NODE];
+    int w_rank = ompi_comm_rank(comm);
 
     int *vranks = han_module->cached_vranks;
     int low_rank = ompi_comm_rank(low_comm);
     int low_size = ompi_comm_size(low_comm);
-    int root_low_rank;
-    int root_up_rank;
+    int root_low_rank, root_up_rank;
 
     /* Topo must be initialized to know rank distribution which then is used to
      * determine if han can be used */
@@ -230,17 +226,17 @@ mca_coll_han_bcast_intra_simple(void *buff,
 
     if (han_module->are_ppn_imbalanced){
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
-                        "han cannot handle bcast with this communicator. It need to fall back on another component\n"));
+                             "han cannot handle bcast with this communicator. It need to fall back on another component\n"));
         return han_module->previous_bcast(buff, count, dtype, root,
-                    comm, han_module->previous_bcast_module);
+                                          comm, han_module->previous_bcast_module);
     } else {
         OPAL_OUTPUT_VERBOSE((10, mca_coll_han_component.han_output,
-                            "[OMPI][han] in mca_coll_han_bcast_intra_simple\n"));
+                             "[OMPI][han] in mca_coll_han_bcast_intra_simple\n"));
     }
 
     mca_coll_han_get_ranks(vranks, root, low_size, &root_low_rank, &root_up_rank);
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
-                        "[%d]: root_low_rank %d root_up_rank %d\n",
+                         "[%d]: root_low_rank %d root_up_rank %d\n",
                          w_rank, root_low_rank, root_up_rank));
 
     if (low_rank == root_low_rank) {
