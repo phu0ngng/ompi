@@ -730,7 +730,7 @@ int ompi_coll_tuned_gather_intra_dec_fixed(const void *sbuf, int scount,
     rank = ompi_comm_rank(comm);
 
     /* Determine block size */
-    if (rank == root) {
+    if ( (rank == root) || (MPI_IN_PLACE == sbuf) ) {
         ompi_datatype_type_size(rdtype, &dsize);
         block_size = dsize * (ptrdiff_t)rcount;
     } else {
