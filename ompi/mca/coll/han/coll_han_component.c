@@ -25,6 +25,7 @@
 #include "coll_han.h"
 #include "coll_han_dynamic.h"
 #include "coll_han_dynamic_file.h"
+#include "ompi/mca/coll/base/coll_base_util.h"
 
 /*
  * Public string showing the coll ompi_han component version number
@@ -32,9 +33,16 @@
 const char *mca_coll_han_component_version_string =
     "Open MPI HAN collective MCA component version " OMPI_VERSION;
 
-const char *components_name[COMPONENTS_COUNT] =
-    {"self", "basic", "libnbc", "tuned",
-     "sm", "shared", "adapt", "han"};
+ompi_coll_han_components available_components[COMPONENTS_COUNT] = {
+    { SELF, "self",  NULL },
+    { BASIC, "basic", NULL },
+    { LIBNBC, "libnbc", NULL },
+    { TUNED, "tuned", NULL },
+    { SM, "sm", NULL },
+    { SHARED, "shared", NULL },
+    { ADAPT, "adapt", NULL },
+    { HAN, "han", NULL }
+};
 
 /*
  * Local functions
@@ -49,35 +57,33 @@ static int han_register(void);
  */
 
 mca_coll_han_component_t mca_coll_han_component = {
-
     /* First, fill in the super */
-
     {
-     /* First, the mca_component_t struct containing meta
-        information about the component itself */
+        /* First, the mca_component_t struct containing meta
+           information about the component itself */
 
-     .collm_version = {
-                       MCA_COLL_BASE_VERSION_2_0_0,
+        .collm_version = {
+            MCA_COLL_BASE_VERSION_2_0_0,
 
-                       /* Component name and version */
-                       .mca_component_name = "han",
-                       MCA_BASE_MAKE_VERSION(component, OMPI_MAJOR_VERSION, OMPI_MINOR_VERSION,
-                                             OMPI_RELEASE_VERSION),
+            /* Component name and version */
+            .mca_component_name = "han",
+            MCA_BASE_MAKE_VERSION(component, OMPI_MAJOR_VERSION, OMPI_MINOR_VERSION,
+                                  OMPI_RELEASE_VERSION),
 
-                       /* Component functions */
-                       .mca_open_component = han_open,
-                       .mca_close_component = han_close,
-                       .mca_register_component_params = han_register,
-                       },
-     .collm_data = {
-                    /* The component is not checkpoint ready */
-                    MCA_BASE_METADATA_PARAM_NONE},
+            /* Component functions */
+            .mca_open_component = han_open,
+            .mca_close_component = han_close,
+            .mca_register_component_params = han_register,
+        },
+        .collm_data = {
+            /* The component is not checkpoint ready */
+            MCA_BASE_METADATA_PARAM_NONE},
 
-     /* Initialization / querying functions */
+        /* Initialization / querying functions */
 
-     .collm_init_query = mca_coll_han_init_query,
-     .collm_comm_query = mca_coll_han_comm_query,
-     },
+        .collm_init_query = mca_coll_han_init_query,
+        .collm_comm_query = mca_coll_han_comm_query,
+    },
 
     /* han-component specifc information */
 
@@ -135,57 +141,7 @@ const char* mca_coll_han_topo_lvl_to_str(TOPO_LVL_T topo_lvl)
             return "invalid topologic level";
     }
 }
-const char* mca_coll_han_colltype_to_str(COLLTYPE_T coll)
-{
-    switch(coll) {
-        case ALLGATHER:
-            return "allgather";
-        case ALLGATHERV:
-            return "allgatherv";
-        case ALLREDUCE:
-            return "allreduce";
-        case ALLTOALL:
-            return "alltoall";
-        case ALLTOALLV:
-            return "alltoallv";
-        case ALLTOALLW:
-            return "alltoallw";
-        case BARRIER:
-            return "barrier";
-        case BCAST:
-            return "bcast";
-        case EXSCAN:
-            return "exscan";
-        case GATHER:
-            return "gather";
-        case GATHERV:
-            return "gatherv";
-        case REDUCE:
-            return "reduce";
-        case REDUCESCATTER:
-            return "reduce_scatter";
-        case REDUCESCATTERBLOCK:
-            return "reduce_scatter_block";
-        case SCAN:
-            return "scan";
-        case SCATTER:
-            return "scatter";
-        case SCATTERV:
-            return "scatterv";
-        case NEIGHBOR_ALLGATHER:
-            return "neighbor_allgather";
-        case NEIGHBOR_ALLGATHERV:
-            return "neighbor_allgatherv";
-        case NEIGHBOR_ALLTOALL:
-            return "neighbor_alltoall";
-        case NEIGHBOR_ALLTOALLV:
-            return "neighbor_alltoallv";
-        case NEIGHBOR_ALLTOALLW:
-            return "neighbor_alltoallw";
-        default:
-            return "";
-    }
-}
+
 
 /*
  * Register MCA params
@@ -325,9 +281,9 @@ static int han_register(void)
         cs->use_simple_algorithm[coll] = false;
         if(is_simple_implemented(coll)) {
             snprintf(param_name, sizeof(param_name), "use_simple_%s",
-                     mca_coll_han_colltype_to_str(coll));
+                     mca_coll_base_colltype_to_str(coll));
             snprintf(param_desc, sizeof(param_desc), "whether to enable simple algo for %s",
-                     mca_coll_han_colltype_to_str(coll));
+                     mca_coll_base_colltype_to_str(coll));
             mca_base_component_var_register(c, param_name,
                                             param_desc,
                                             MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0,
@@ -354,12 +310,12 @@ static int han_register(void)
         for(topo_lvl = 0; topo_lvl < NB_TOPO_LVL; topo_lvl++) {
 
             snprintf(param_name, sizeof(param_name), "%s_dynamic_%s_module",
-                     mca_coll_han_colltype_to_str(coll),
+                     mca_coll_base_colltype_to_str(coll),
                      mca_coll_han_topo_lvl_to_str(topo_lvl));
 
             param_desc_size = snprintf(param_desc, sizeof(param_desc),
                                        "Collective module to use for %s on %s topological level: ",
-                                       mca_coll_han_colltype_to_str(coll),
+                                       mca_coll_base_colltype_to_str(coll),
                                        mca_coll_han_topo_lvl_to_str(topo_lvl));
             /*
              * Exhaustive description:
@@ -374,7 +330,7 @@ static int han_register(void)
                 param_desc_size += snprintf(param_desc+param_desc_size, sizeof(param_desc) - param_desc_size,
                                             "%d = %s; ",
                                             component,
-                                            components_name[component]);
+                                            available_components[component].component_name);
             }
 
             mca_base_component_var_register(c, param_name, param_desc,

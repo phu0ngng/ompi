@@ -143,6 +143,11 @@ int ompi_coll_base_retain_datatypes_w( ompi_request_t *request,
 /* File reading function */
 int ompi_coll_base_file_getnext_long(FILE *fptr, int *filelinei, long* val);
 int ompi_coll_base_file_getnext_size_t(FILE *fptr, int *fileline, size_t* val);
+int ompi_coll_base_file_getnext_string(FILE *fptr, int *fileline, char** val);
+
+/* Miscelaneous function */
+const char* mca_coll_base_colltype_to_str(int collid);
+int mca_coll_base_name_to_colltype(const char* name);
 
 END_C_DECLS
 #endif /* MCA_COLL_BASE_UTIL_EXPORT_H */

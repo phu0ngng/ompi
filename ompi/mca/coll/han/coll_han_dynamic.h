@@ -97,7 +97,7 @@
 
 /* Dynamic rules support */
 typedef enum COMPONENTS {
-    SELF=0,
+    SELF = 0,
     BASIC,
     LIBNBC,
     TUNED,
@@ -108,11 +108,17 @@ typedef enum COMPONENTS {
     COMPONENTS_COUNT
 } COMPONENT_T;
 
-extern const char *components_name[COMPONENTS_COUNT];
+typedef struct {
+    COMPONENT_T id;
+    char* component_name;
+    mca_coll_base_component_t* component;
+} ompi_coll_han_components;
+
+extern ompi_coll_han_components available_components[COMPONENTS_COUNT];
 
 /* Topologic levels */
 typedef enum TOPO_LVL {
-    INTRA_NODE=0,
+    INTRA_NODE = 0,
     INTER_NODE,
     /* Identifies the global communicator as a topologic level */
     GLOBAL_COMMUNICATOR,
@@ -203,5 +209,6 @@ typedef struct mca_coll_han_collective_modules_storage_s {
 
 /* Tests if a dynamic collective is implemented */
 bool mca_coll_han_is_coll_dynamic_implemented(COLLTYPE_T coll_id);
+COMPONENT_T mca_coll_han_component_name_to_id(const char* name);
 
 #endif

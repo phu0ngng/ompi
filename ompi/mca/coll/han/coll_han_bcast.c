@@ -73,9 +73,9 @@ mca_coll_han_bcast_intra(void *buff,
 
     if (han_module->are_ppn_imbalanced){
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
-                        "han cannot handle bcast with this communicator. It need to fall back on another component\n"));
+                             "han cannot handle bcast with this communicator. It need to fall back on another component\n"));
         return han_module->previous_bcast(buff, count, dtype, root,
-                    comm, han_module->previous_bcast_module);
+                                          comm, han_module->previous_bcast_module);
     }
 
     ompi_datatype_get_extent(dtype, &lb, &extent);
@@ -128,9 +128,7 @@ mca_coll_han_bcast_intra(void *buff,
 
     while (t->cur_seg <= t->num_segments - 2) {
         /* Create t1 task */
-        mca_coll_task_t *t1 = OBJ_NEW(mca_coll_task_t);
-        /* Setup up t1 task arguments */
-        t->cur_task = t1;
+        t->cur_task = t1 = OBJ_NEW(mca_coll_task_t);
         t->buff = (char *) t->buff + extent * seg_count;
         t->cur_seg = t->cur_seg + 1;
         /* Init the t1 task */
@@ -147,18 +145,15 @@ mca_coll_han_bcast_intra(void *buff,
 int mca_coll_han_bcast_t0_task(void *task_args)
 {
     mca_coll_han_bcast_args_t *t = (mca_coll_han_bcast_args_t *) task_args;
+
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: in t0 %d\n", t->w_rank,
                          t->cur_seg));
     OBJ_RELEASE(t->cur_task);
     if (t->noop) {
         return OMPI_SUCCESS;
     }
-    ptrdiff_t extent, lb;
-    ompi_datatype_get_extent(t->dtype, &lb, &extent);
-    ompi_request_t *ibcast_req;
-    t->up_comm->c_coll->coll_ibcast((char *) t->buff, t->seg_count, t->dtype, t->root_up_rank,
-                                    t->up_comm, &ibcast_req, t->up_comm->c_coll->coll_ibcast_module);
-    ompi_request_wait(&ibcast_req, MPI_STATUS_IGNORE);
+    t->up_comm->c_coll->coll_bcast((char *) t->buff, t->seg_count, t->dtype, t->root_up_rank,
+                                   t->up_comm, t->up_comm->c_coll->coll_bcast_module);
     return OMPI_SUCCESS;
 }
 
@@ -170,16 +165,17 @@ int mca_coll_han_bcast_t0_task(void *task_args)
 int mca_coll_han_bcast_t1_task(void *task_args)
 {
     mca_coll_han_bcast_args_t *t = (mca_coll_han_bcast_args_t *) task_args;
+    ompi_request_t *ibcast_req = NULL;
+    ptrdiff_t extent, lb;
+
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: in t1 %d\n", t->w_rank,
                          t->cur_seg));
     OBJ_RELEASE(t->cur_task);
-    ptrdiff_t extent, lb;
     ompi_datatype_get_extent(t->dtype, &lb, &extent);
-    ompi_request_t *ibcast_req = NULL;
-    int tmp_count = t->seg_count;
     if (!t->noop) {
         if (t->cur_seg <= t->num_segments - 2 ) {
-            if (t->cur_seg == t->num_segments - 2  && t->last_seg_count != t->seg_count) {
+            int tmp_count = t->seg_count;
+            if (t->cur_seg == t->num_segments - 2) {
                 tmp_count = t->last_seg_count;
             }
             t->up_comm->c_coll->coll_ibcast((char *) t->buff + extent * t->seg_count,
@@ -193,7 +189,7 @@ int mca_coll_han_bcast_t1_task(void *task_args)
                                     t->seg_count, t->dtype, t->root_low_rank, t->low_comm,
                                     t->low_comm->c_coll->coll_bcast_module);
 
-    if (!t->noop && ibcast_req != NULL) {
+    if (NULL != ibcast_req) {
         ompi_request_wait(&ibcast_req, MPI_STATUS_IGNORE);
     }
 
@@ -240,16 +236,19 @@ mca_coll_han_bcast_intra_simple(void *buff,
                          w_rank, root_low_rank, root_up_rank));
 
     if (low_rank == root_low_rank) {
-        up_comm->c_coll->coll_bcast(buff, count, dtype, root_up_rank, up_comm, up_comm->c_coll->coll_bcast_module);
+        up_comm->c_coll->coll_bcast(buff, count, dtype, root_up_rank,
+                                    up_comm, up_comm->c_coll->coll_bcast_module);
 
         /* To remove when han has better sub-module selection.
            For now switching to ibcast enables to make runs with libnbc. */
         //ompi_request_t req;
-        //up_comm->c_coll->coll_ibcast(buff, count, dtype, root_up_rank, up_comm, &req, up_comm->c_coll->coll_ibcast_module);
+        //up_comm->c_coll->coll_ibcast(buff, count, dtype, root_up_rank,
+        //                             up_comm, &req, up_comm->c_coll->coll_ibcast_module);
         //ompi_request_wait(&req, MPI_STATUS_IGNORE);
 
     }
-    low_comm->c_coll->coll_bcast(buff, count, dtype, root_low_rank, low_comm, low_comm->c_coll->coll_bcast_module);
+    low_comm->c_coll->coll_bcast(buff, count, dtype, root_low_rank,
+                                 low_comm, low_comm->c_coll->coll_bcast_module);
 
     return OMPI_SUCCESS;
 }

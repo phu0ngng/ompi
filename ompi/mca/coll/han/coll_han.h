@@ -327,7 +327,6 @@ mca_coll_han_get_ranks(int *vranks, int root, int low_size,
     *root_low_rank = vranks[root] % low_size;
 }
 
-const char* mca_coll_han_colltype_to_str(COLLTYPE_T coll);
 const char* mca_coll_han_topo_lvl_to_str(TOPO_LVL_T topo_lvl);
 
 /** Dynamic component choice */

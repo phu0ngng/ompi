@@ -29,6 +29,7 @@
 #include "ompi/mca/topo/base/base.h"
 #include "ompi/mca/pml/pml.h"
 #include "coll_base_util.h"
+#include "coll_base_functions.h"
 
 int ompi_coll_base_sendrecv_actual( const void* sendbuf, size_t scount,
                                     ompi_datatype_t* sdatatype,
@@ -350,6 +351,38 @@ int ompi_coll_base_file_getnext_long(FILE *fptr, int *fileline, long* val)
     } while (1);
 }
 
+int ompi_coll_base_file_getnext_string(FILE *fptr, int *fileline, char** val)
+{
+    char trash, token[32];
+    int rc;
+
+    *val = NULL;  /* security in case we fail */
+    do {
+        rc = fscanf(fptr, "%32s", token);
+        if (rc == EOF) {
+            return -1;
+        }
+        if (1 == rc) {
+            if( '#' == token[0] ) {
+                skiptonewline(fptr, fileline);
+                continue;
+            }
+            *val = (char*)malloc(strlen(token) + 1);
+            strcpy(*val, token);
+            return 0;
+        }
+        /* in all other cases, skip to the end of the token */
+        rc = fread(&trash, sizeof(char), 1, fptr);
+        if (rc == EOF) {
+            return -1;
+        }
+        if ('\n' == trash) (*fileline)++;
+        if ('#' == trash) {
+            skiptonewline (fptr, fileline);
+        }
+    } while (1);
+}
+
 int ompi_coll_base_file_getnext_size_t(FILE *fptr, int *fileline, size_t* val)
 {
     char trash;
@@ -373,4 +406,124 @@ int ompi_coll_base_file_getnext_size_t(FILE *fptr, int *fileline, size_t* val)
             skiptonewline (fptr, fileline);
         }
     } while (1);
+}
+
+int mca_coll_base_name_to_colltype(const char* name)
+{
+    if( 0 == strncmp(name, "neighbor_all", 12) ) {
+        if( 't' != name[12] ) {
+            if( 0 == strcmp(name+12, "allgatherv") )
+                return NEIGHBOR_ALLGATHERV;
+            if( 0 == strcmp(name+12, "allgather") )
+                return NEIGHBOR_ALLGATHER;
+        } else {
+            if( 0 == strcmp(name+12, "alltoallv") )
+                return NEIGHBOR_ALLTOALLV;
+            if( 0 == strcmp(name+12, "alltoallw") )
+                return NEIGHBOR_ALLTOALLW;
+            if( 0 == strcmp(name+12, "alltoall") )
+                return NEIGHBOR_ALLTOALL;
+        }
+        return -1;
+    }
+    if( 0 == strncmp(name, "all", 3) ) {
+        if( 't' != name[3] ) {
+            if( 0 == strcmp(name+3, "gatherv") )
+                return ALLGATHERV;
+            if( 0 == strcmp(name+3, "gather") )
+                return ALLGATHER;
+            if( 0 == strcmp(name+3, "reduce") )
+                return ALLREDUCE;
+        } else {
+            if( 0 == strcmp(name+3, "toallv") )
+                return ALLTOALLV;
+            if( 0 == strcmp(name+3, "toallw") )
+                return ALLTOALLW;
+            if( 0 == strcmp(name+3, "toall") )
+                return ALLTOALL;
+        }
+        return -1;
+    }
+    if( 'r' >= name[0] ) {
+        if( 0 == strcmp(name, "barrier") )
+            return BARRIER;
+        if( 0 == strcmp(name, "bcast") )
+            return BCAST;
+        if( 0 == strcmp(name, "exscan") )
+            return EXSCAN;
+        if( 0 == strcmp(name, "gatherv") )
+            return GATHERV;
+        if( 0 == strcmp(name, "gather") )
+            return GATHER;
+    }
+    if( 's' >= name[0] ) {
+        if( 0 == strcmp(name, "reduce_scatter_block") )
+            return REDUCESCATTERBLOCK;
+        if( 0 == strcmp(name, "reduce_scatter") )
+            return REDUCESCATTER;
+        if( 0 == strcmp(name, "reduce") )
+            return REDUCE;
+    }
+    if( 0 == strcmp(name, "scan") )
+        return SCAN;
+    if( 0 == strcmp(name, "scatterv") )
+        return SCATTERV;
+    if( 0 == strcmp(name, "scatter") )
+        return SCATTER;
+    return -1;
+}
+
+const char* mca_coll_base_colltype_to_str(int collid)
+{
+    if( (collid < 0) || (collid >= COLLCOUNT) ) {
+        return NULL;
+    }
+    switch(collid) {
+        case ALLGATHER:
+            return "allgather";
+        case ALLGATHERV:
+            return "allgatherv";
+        case ALLREDUCE:
+            return "allreduce";
+        case ALLTOALL:
+            return "alltoall";
+        case ALLTOALLV:
+            return "alltoallv";
+        case ALLTOALLW:
+            return "alltoallw";
+        case BARRIER:
+            return "barrier";
+        case BCAST:
+            return "bcast";
+        case EXSCAN:
+            return "exscan";
+        case GATHER:
+            return "gather";
+        case GATHERV:
+            return "gatherv";
+        case REDUCE:
+            return "reduce";
+        case REDUCESCATTER:
+            return "reduce_scatter";
+        case REDUCESCATTERBLOCK:
+            return "reduce_scatter_block";
+        case SCAN:
+            return "scan";
+        case SCATTER:
+            return "scatter";
+        case SCATTERV:
+            return "scatterv";
+        case NEIGHBOR_ALLGATHER:
+            return "neighbor_allgather";
+        case NEIGHBOR_ALLGATHERV:
+            return "neighbor_allgatherv";
+        case NEIGHBOR_ALLTOALL:
+            return "neighbor_alltoall";
+        case NEIGHBOR_ALLTOALLV:
+            return "neighbor_alltoallv";
+        case NEIGHBOR_ALLTOALLW:
+            return "neighbor_alltoallw";
+        default:
+            return NULL;
+    }
 }
