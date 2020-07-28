@@ -103,7 +103,7 @@ mca_coll_han_allgather_intra(const void *sbuf, int scount,
     return OMPI_SUCCESS;
 }
 
-/* lg: lower level (shared memory) gather task */
+/* lg: lower level gather task */
 int mca_coll_han_allgather_lg_task(void *task_args)
 {
     mca_coll_han_allgather_t *t = (mca_coll_han_allgather_t *) task_args;
@@ -120,7 +120,7 @@ int mca_coll_han_allgather_lg_task(void *task_args)
         tmp_buf = (char *) malloc(rsize);
         tmp_rbuf = tmp_buf - rgap;
     }
-    /* Shared memory gather */
+    /* Lower level (shared memory or intra-node) gather */
     t->low_comm->c_coll->coll_gather((char *) t->sbuf, t->scount, t->sdtype, tmp_rbuf, t->rcount,
                                      t->rdtype, t->root_low_rank, t->low_comm,
                                      t->low_comm->c_coll->coll_gather_module);
@@ -214,7 +214,7 @@ int mca_coll_han_allgather_uag_task(void *task_args)
     return OMPI_SUCCESS;
 }
 
-/* lb: low level (shared-memory) broadcast task */
+/* lb: low level broadcast task */
 int mca_coll_han_allgather_lb_task(void *task_args)
 {
     mca_coll_han_allgather_t *t = (mca_coll_han_allgather_t *) task_args;

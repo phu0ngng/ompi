@@ -209,14 +209,14 @@ int mca_coll_han_scatter_us_task(void *task_args)
     return OMPI_SUCCESS;
 }
 
-/* ls: lower level (shared memory) scatter task */
+/* ls: lower level (shared memory or intra-node) scatter task */
 int mca_coll_han_scatter_ls_task(void *task_args)
 {
     mca_coll_han_scatter_args_t *t = (mca_coll_han_scatter_args_t *) task_args;
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d] Han Scatter:  ls\n",
                          t->w_rank));
     OBJ_RELEASE(t->cur_task);
-    /* Shared memory scatter */
+
     t->low_comm->c_coll->coll_scatter((char *) t->sbuf, t->scount, t->sdtype, (char *) t->rbuf,
                                       t->rcount, t->rdtype, t->root_low_rank, t->low_comm,
                                       t->low_comm->c_coll->coll_scatter_module);

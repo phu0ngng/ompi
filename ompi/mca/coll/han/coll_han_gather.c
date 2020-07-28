@@ -208,7 +208,7 @@ int mca_coll_han_gather_lg_task(void *task_args)
         tmp_rbuf = tmp_buf - rgap;
     }
 
-    /* shared memory node gather */
+    /* Low level (usually intra-node or shared memory) node gather */
     t->low_comm->c_coll->coll_gather((char *)t->sbuf,
                                      t->scount,
                                      t->sdtype,

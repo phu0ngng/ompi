@@ -412,16 +412,16 @@ int mca_coll_base_name_to_colltype(const char* name)
 {
     if( 0 == strncmp(name, "neighbor_all", 12) ) {
         if( 't' != name[12] ) {
-            if( 0 == strcmp(name+12, "allgatherv") )
+            if( 0 == strcmp(name+12, "gatherv") )
                 return NEIGHBOR_ALLGATHERV;
-            if( 0 == strcmp(name+12, "allgather") )
+            if( 0 == strcmp(name+12, "gather") )
                 return NEIGHBOR_ALLGATHER;
         } else {
-            if( 0 == strcmp(name+12, "alltoallv") )
+            if( 0 == strcmp(name+12, "toallv") )
                 return NEIGHBOR_ALLTOALLV;
-            if( 0 == strcmp(name+12, "alltoallw") )
+            if( 0 == strcmp(name+12, "toallw") )
                 return NEIGHBOR_ALLTOALLW;
-            if( 0 == strcmp(name+12, "alltoall") )
+            if( 0 == strcmp(name+12, "toall") )
                 return NEIGHBOR_ALLTOALL;
         }
         return -1;
