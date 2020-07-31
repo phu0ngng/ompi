@@ -408,61 +408,83 @@ int ompi_coll_base_file_getnext_size_t(FILE *fptr, int *fileline, size_t* val)
     } while (1);
 }
 
+/**
+ * There are certainly simpler implementation for this function when performance
+ * is not a critical point. But, as this function is used during the collective
+ * configuration, and we can do this configurations once for each communicator,
+ * I would rather have a more complex but faster implementation.
+ * The approach here is to search for the largest common denominators, to create
+ * something similar to a dichotomic search.
+ */
 int mca_coll_base_name_to_colltype(const char* name)
 {
-    if( 0 == strncmp(name, "neighbor_all", 12) ) {
-        if( 't' != name[12] ) {
-            if( 0 == strcmp(name+12, "gatherv") )
-                return NEIGHBOR_ALLGATHERV;
-            if( 0 == strcmp(name+12, "gather") )
-                return NEIGHBOR_ALLGATHER;
-        } else {
-            if( 0 == strcmp(name+12, "toallv") )
-                return NEIGHBOR_ALLTOALLV;
-            if( 0 == strcmp(name+12, "toallw") )
-                return NEIGHBOR_ALLTOALLW;
-            if( 0 == strcmp(name+12, "toall") )
-                return NEIGHBOR_ALLTOALL;
+    if( 'n' == name[0] ) {
+        if( 0 == strncmp(name, "neighbor_all", 12) ) {
+            if( 't' != name[12] ) {
+                if( 0 == strncmp(name+12, "gather", 6) ) {
+                    if('\0' == name[18]) return NEIGHBOR_ALLGATHER;
+                    if( 'v' == name[18]) return NEIGHBOR_ALLGATHERV;
+                }
+            } else {
+                if( 0 == strncmp(name+12, "toall", 5) ) {
+                    if( '\0' == name[17] ) return NEIGHBOR_ALLTOALL;
+                    if( 'v' == name[17] ) return NEIGHBOR_ALLTOALLV;
+                    if( 'w' == name[17] ) return NEIGHBOR_ALLTOALLW;
+                }
+            }
         }
         return -1;
     }
-    if( 0 == strncmp(name, "all", 3) ) {
+    if( 'a' == name[0] ) {
+        if( 0 != strncmp(name, "all", 3) ) {
+            return -1;
+        }
         if( 't' != name[3] ) {
-            if( 0 == strcmp(name+3, "gatherv") )
-                return ALLGATHERV;
-            if( 0 == strcmp(name+3, "gather") )
-                return ALLGATHER;
-            if( 0 == strcmp(name+3, "reduce") )
-                return ALLREDUCE;
+            if( 'r' == name[3] ) {
+                if( 0 == strcmp(name+3, "reduce") )
+                    return ALLREDUCE;
+            } else {
+                if( 0 == strncmp(name+3, "gather", 6) ) {
+                    if( '\0' == name[9] ) return ALLGATHER;
+                    if( 'v'  == name[9] ) return ALLGATHERV;
+                }
+            }
         } else {
-            if( 0 == strcmp(name+3, "toallv") )
-                return ALLTOALLV;
-            if( 0 == strcmp(name+3, "toallw") )
-                return ALLTOALLW;
-            if( 0 == strcmp(name+3, "toall") )
-                return ALLTOALL;
+            if( 0 == strncmp(name+3, "toall", 5) ) {
+                if( '\0' == name[8] ) return ALLTOALL;
+                if( 'v' == name[8] ) return ALLTOALLV;
+                if( 'w' == name[8] ) return ALLTOALLW;
+            }
         }
         return -1;
     }
-    if( 'r' >= name[0] ) {
-        if( 0 == strcmp(name, "barrier") )
-            return BARRIER;
-        if( 0 == strcmp(name, "bcast") )
-            return BCAST;
+    if( 'r' > name[0] ) {
+        if( 'b' == name[0] ) {
+            if( 0 == strcmp(name, "barrier") )
+                return BARRIER;
+            if( 0 == strcmp(name, "bcast") )
+                return BCAST;
+        } else if( 'g'== name[0] ) {
+            if( 0 == strncmp(name, "gather", 6) ) {
+                if( '\0' == name[6] ) return GATHER;
+                if( 'v' == name[6] ) return GATHERV;
+            }
+        }
         if( 0 == strcmp(name, "exscan") )
             return EXSCAN;
-        if( 0 == strcmp(name, "gatherv") )
-            return GATHERV;
-        if( 0 == strcmp(name, "gather") )
-            return GATHER;
+        return -1;
     }
-    if( 's' >= name[0] ) {
-        if( 0 == strcmp(name, "reduce_scatter_block") )
-            return REDUCESCATTERBLOCK;
-        if( 0 == strcmp(name, "reduce_scatter") )
-            return REDUCESCATTER;
-        if( 0 == strcmp(name, "reduce") )
-            return REDUCE;
+    if( 's' > name[0] ) {
+        if( 0 == strncmp(name, "reduce", 6) ) {
+            if( '\0' == name[6] ) return REDUCE;
+            if( '_' == name[6] ) {
+                if( 0 == strncmp(name+7, "scatter", 7) ) {
+                    if( '\0' == name[14] ) return REDUCESCATTER;
+                    if( 0 == strcmp(name+14, "_block") ) return REDUCESCATTERBLOCK;
+                }
+            }
+        }
+        return -1;
     }
     if( 0 == strcmp(name, "scan") )
         return SCAN;
@@ -473,57 +495,37 @@ int mca_coll_base_name_to_colltype(const char* name)
     return -1;
 }
 
+/* conversion table for all COLLTYPE_T values defined in ompi/mca/coll/base/coll_base_functions.h */
+static const char* colltype_translation_table[] = {
+    [ALLGATHER] = "allgather",
+    [ALLGATHERV] = "allgatherv",
+    [ALLREDUCE] = "allreduce",
+    [ALLTOALL] = "alltoall",
+    [ALLTOALLV] = "alltoallv",
+    [ALLTOALLW] = "alltoallw",
+    [BARRIER] = "barrier",
+    [BCAST] = "bcast",
+    [EXSCAN] = "exscan",
+    [GATHER] = "gather",
+    [GATHERV] = "gatherv",
+    [REDUCE] = "reduce",
+    [REDUCESCATTER] = "reduce_scatter",
+    [REDUCESCATTERBLOCK] = "reduce_scatter_block",
+    [SCAN] = "scan",
+    [SCATTER] = "scatter",
+    [SCATTERV] = "scatterv",
+    [NEIGHBOR_ALLGATHER] = "neighbor_allgather",
+    [NEIGHBOR_ALLGATHERV] = "neighbor_allgatherv",
+    [NEIGHBOR_ALLTOALL] = "neighbor_alltoall",
+    [NEIGHBOR_ALLTOALLV] = "neighbor_alltoallv",
+    [NEIGHBOR_ALLTOALLW] = "neighbor_alltoallw",
+    [COLLCOUNT] = NULL
+};
+
 const char* mca_coll_base_colltype_to_str(int collid)
 {
     if( (collid < 0) || (collid >= COLLCOUNT) ) {
         return NULL;
     }
-    switch(collid) {
-        case ALLGATHER:
-            return "allgather";
-        case ALLGATHERV:
-            return "allgatherv";
-        case ALLREDUCE:
-            return "allreduce";
-        case ALLTOALL:
-            return "alltoall";
-        case ALLTOALLV:
-            return "alltoallv";
-        case ALLTOALLW:
-            return "alltoallw";
-        case BARRIER:
-            return "barrier";
-        case BCAST:
-            return "bcast";
-        case EXSCAN:
-            return "exscan";
-        case GATHER:
-            return "gather";
-        case GATHERV:
-            return "gatherv";
-        case REDUCE:
-            return "reduce";
-        case REDUCESCATTER:
-            return "reduce_scatter";
-        case REDUCESCATTERBLOCK:
-            return "reduce_scatter_block";
-        case SCAN:
-            return "scan";
-        case SCATTER:
-            return "scatter";
-        case SCATTERV:
-            return "scatterv";
-        case NEIGHBOR_ALLGATHER:
-            return "neighbor_allgather";
-        case NEIGHBOR_ALLGATHERV:
-            return "neighbor_allgatherv";
-        case NEIGHBOR_ALLTOALL:
-            return "neighbor_alltoall";
-        case NEIGHBOR_ALLTOALLV:
-            return "neighbor_alltoallv";
-        case NEIGHBOR_ALLTOALLW:
-            return "neighbor_alltoallw";
-        default:
-            return NULL;
-    }
+    return colltype_translation_table[collid];
 }
