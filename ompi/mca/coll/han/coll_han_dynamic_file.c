@@ -48,7 +48,7 @@ mca_coll_han_init_dynamic_rules(void)
 
     /* Collective informations */
     long nb_coll, coll_id;
-    char* coll_name = NULL;
+    char * coll_name = NULL;
     collective_rule_t *coll_rules;
 
     /* Topo informations */
@@ -131,12 +131,18 @@ mca_coll_han_init_dynamic_rules(void)
         }
         coll_id = mca_coll_base_name_to_colltype(coll_name);
         if( (coll_id < ALLGATHER) || (coll_id >= COLLCOUNT)) {
-            opal_output_verbose(5, mca_coll_han_component.han_output,
-                                "coll:han:mca_coll_han_init_dynamic_rules invalid collective %s "
-                                "at line %d: the collective must be at least %d and less than %d. "
-                                "The rest of the input file will be ignored.\n",
-                                coll_name, fileline, ALLGATHER, COLLCOUNT);
-            goto file_reading_error;
+            /* maybe the file was in the old format and we read the collective index instead of the name. */
+            char* endp;
+            coll_id = strtol(coll_name, &endp, 10);
+            if( '\0' != *endp ) {  /* there is garbage in the input */
+                opal_output_verbose(5, mca_coll_han_component.han_output,
+                                    "coll:han:mca_coll_han_init_dynamic_rules invalid collective %s "
+                                    "at line %d: the collective must be at least %d and less than %d. "
+                                    "The rest of the input file will be ignored.\n",
+                                    coll_name, fileline, ALLGATHER, COLLCOUNT);
+                goto file_reading_error;
+            }
+            coll_name = (char*)mca_coll_base_colltype_to_str(coll_id);
         }
 
         if(!mca_coll_han_is_coll_dynamic_implemented(coll_id)) {
@@ -317,9 +323,8 @@ mca_coll_han_init_dynamic_rules(void)
                         free(target_comp_name);
                         goto file_reading_error;
                     }
-                    free(target_comp_name);
 
-                    /* Store message size rule informations */
+                    /* Store message size rule information */
                     msg_size_rules[l].collective_id = coll_id;
                     msg_size_rules[l].topologic_level = topo_lvl;
                     msg_size_rules[l].configuration_size = conf_size;
@@ -327,6 +332,31 @@ mca_coll_han_init_dynamic_rules(void)
                     msg_size_rules[l].component = (COMPONENT_T)component;
 
                     nb_entries++;
+                    /* do we have the optional segment length */
+                    if( 1 == ompi_coll_base_file_peek_next_char_is(fptr, &fileline, '[') ) {
+                        opal_output_verbose(5, mca_coll_han_component.han_output,
+                                            "coll:han:mca_coll_han_init_dynamic_rules found optional pipelining segment lengths\n");
+                        long seglength;
+                        if( 0 != topo_lvl ) {
+                            opal_output_verbose(5, mca_coll_han_component.han_output,
+                                                "coll:han:mca_coll_han_init_dynamic_rules "
+                                                "file %s line %d found segment lengths for topological collective at level != 0 "
+                                                "for collective %s component %s. These values will be ignored.\n",
+                                                fname, fileline, coll_name, target_comp_name);
+                        }
+                        while( 0 == ompi_coll_base_file_peek_next_char_is(fptr, &fileline, ']') ) {
+                            if( getnext_long(fptr, &seglength) ) {
+                                opal_output_verbose(5, mca_coll_han_component.han_output,
+                                                    "coll:han:mca_coll_han_init_dynamic_rules "
+                                                    "file %s line %d found end of file while reading the optional list "
+                                                    "of segment lengths for collective %s component %s\n",
+                                                    fname, fileline, coll_name, target_comp_name);
+                                free(target_comp_name);
+                                goto file_reading_error;
+                            }
+                        }
+                    }
+                    free(target_comp_name);
                 }
             }
         }

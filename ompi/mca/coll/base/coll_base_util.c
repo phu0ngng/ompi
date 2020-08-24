@@ -30,6 +30,7 @@
 #include "ompi/mca/pml/pml.h"
 #include "coll_base_util.h"
 #include "coll_base_functions.h"
+#include <ctype.h>
 
 int ompi_coll_base_sendrecv_actual( const void* sendbuf, size_t scount,
                                     ompi_datatype_t* sdatatype,
@@ -405,6 +406,34 @@ int ompi_coll_base_file_getnext_size_t(FILE *fptr, int *fileline, size_t* val)
         if ('#' == trash) {
             skiptonewline (fptr, fileline);
         }
+    } while (1);
+}
+
+int ompi_coll_base_file_peek_next_char_is(FILE *fptr, int *fileline, int expected)
+{
+    char trash;
+    int rc;
+
+    do {
+        rc = fread(&trash, sizeof(char), 1, fptr);
+        if (0 == rc) {  /* hit the end of the file */
+            return -1;
+        }
+        if ('\n' == trash) {
+            (*fileline)++;
+            continue;
+        }
+        if ('#' == trash) {
+            skiptonewline (fptr, fileline);
+            continue;
+        }
+        if( trash == expected )
+            return 1;  /* return true and eat the char */
+        if( isblank(trash) )  /* skip all spaces if that's not what we were looking for */
+            continue;
+        if( 0 != fseek(fptr, -1, SEEK_CUR) )
+            return -1;
+        return 0;
     } while (1);
 }
 

@@ -141,9 +141,13 @@ int ompi_coll_base_retain_datatypes_w( ompi_request_t *request,
                                        ompi_datatype_t * const rtypes[]);
 
 /* File reading function */
-int ompi_coll_base_file_getnext_long(FILE *fptr, int *filelinei, long* val);
+int ompi_coll_base_file_getnext_long(FILE *fptr, int *fileline, long* val);
 int ompi_coll_base_file_getnext_size_t(FILE *fptr, int *fileline, size_t* val);
 int ompi_coll_base_file_getnext_string(FILE *fptr, int *fileline, char** val);
+/* peek at the next valid token to see if it begins with the expected value. If yes
+ * eat the value, otherwise put it back into the file.
+ */
+int ompi_coll_base_file_peek_next_char_is(FILE *fptr, int *fileline, int expected);
 
 /* Miscelaneous function */
 const char* mca_coll_base_colltype_to_str(int collid);
