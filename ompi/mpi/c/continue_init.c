@@ -21,14 +21,14 @@
 
 #if OMPI_BUILD_MPI_PROFILING
 #if OPAL_HAVE_WEAK_SYMBOLS
-#pragma weak MPI_Continue_init = PMPI_Continue_init
+#pragma weak MPIX_Continue_init = PMPIX_Continue_init
 #endif
-#define MPI_Continue_init PMPI_Continue_init
+#define MPIX_Continue_init PMPIX_Continue_init
 #endif
 
-static const char FUNC_NAME[] = "MPI_Continue_init";
+static const char FUNC_NAME[] = "MPIX_Continue_init";
 
-int MPI_Continue_init(MPI_Request *cont_req)
+int MPIX_Continue_init(MPI_Request *cont_req)
 {
     int rc = MPI_SUCCESS;
 

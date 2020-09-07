@@ -21,18 +21,18 @@
 
 #if OMPI_BUILD_MPI_PROFILING
 #if OPAL_HAVE_WEAK_SYMBOLS
-#pragma weak MPI_Continueall = PMPI_Continueall
+#pragma weak MPIX_Continueall = PMPIX_Continueall
 #endif
-#define MPI_Continueall PMPI_Continueall
+#define MPIX_Continueall PMPIX_Continueall
 #endif
 
-static const char FUNC_NAME[] = "MPI_Continueall";
+static const char FUNC_NAME[] = "MPIX_Continueall";
 
-int MPI_Continueall(
+int MPIX_Continueall(
     int                count,
     MPI_Request        requests[],
     int               *flag,
-    MPI_Continue_cb_t *cont_cb,
+    MPIX_Continue_cb_function *cont_cb,
     void              *cont_data,
     MPI_Status         statuses[],
     MPI_Request        cont_req)

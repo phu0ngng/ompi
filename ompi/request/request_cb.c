@@ -95,7 +95,7 @@ void ompi_request_cont_invoke(ompi_request_cont_t *cont)
     assert(NULL != cont_req);
     assert(OMPI_REQUEST_CONT == cont_req->req_type);
 
-    MPI_Continue_cb_t *fn = cont->cont_cb;
+    MPIX_Continue_cb_function *fn = cont->cont_cb;
     void *cont_data = cont->cont_data;
     fn(cont_data);
     ompi_request_cont_destroy(cont, cont_req);
@@ -183,7 +183,7 @@ static inline
 ompi_request_cont_t *ompi_request_cont_create(
   int                         count,
   ompi_request_t             *cont_req,
-  MPI_Continue_cb_t          *cont_cb,
+  MPIX_Continue_cb_function  *cont_cb,
   void                       *cont_data)
 {
     ompi_request_cont_t *cont;
@@ -216,7 +216,7 @@ int ompi_request_cont_register(
   ompi_request_t             *cont_req,
   const int                   count,
   ompi_request_t             *requests[],
-  MPI_Continue_cb_t          *cont_cb,
+  MPIX_Continue_cb_function  *cont_cb,
   void                       *cont_data,
   bool                       *all_complete,
   ompi_status_public_t        statuses[])
