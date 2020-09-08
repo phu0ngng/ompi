@@ -77,17 +77,13 @@ struct ompi_coll_adapt_constant_reduce_context_s {
     ompi_request_t *request;
     int rank;
     /* Length of the fragment array, which is the number of recevied segments */
-    int32_t num_recv_segs;
+    opal_atomic_int32_t num_recv_segs;
     /* Number of sent segments */
-    int32_t num_sent_segs;
+    opal_atomic_int32_t num_sent_segs;
     /* Next seg need to be received for every children */
     opal_atomic_int32_t *next_recv_segs;
     /* Mutex to protect recv_list */
     opal_mutex_t *mutex_recv_list;
-    /* Mutex to protect num_recv_segs */
-    opal_mutex_t *mutex_num_recv_segs;
-    /* Mutex to protect num_sent */
-    opal_mutex_t *mutex_num_sent;
     /* Mutex to protect each segment when do the reduce op */
     opal_mutex_t *mutex_op_list;
     /* Reduce operation */
