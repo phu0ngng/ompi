@@ -482,15 +482,15 @@ static int recv_cb(ompi_request_t * req)
         }
     }
 
-    Int num_recv_segs_t = opal_atomic_add_fetch_32(&(context->con->num_recv_segs), 1);
+    int32_t num_recv_segs = opal_atomic_add_fetch_32(&(context->con->num_recv_segs), 1);
     OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output,
                          "[%d]: In recv_cb, tree = %p, root = %d, num_recv = %d, num_segs = %d, num_child = %d\n",
                          context->con->rank, (void *) context->con->tree,
-                         context->con->tree->tree_root, num_recv_segs_t, context->con->num_segs,
+                         context->con->tree->tree_root, num_recv_segs, context->con->num_segs,
                          context->con->tree->tree_nextsize));
     /* If this is root and has received all the segments */
     if (context->con->tree->tree_root == context->con->rank
-        && num_recv_segs_t == context->con->num_segs * context->con->tree->tree_nextsize) {
+        && num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize) {
         if (!keep_inbuf && context->inbuf != NULL) {
             OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output,
                                  "[%d]: root free context inbuf %p", context->con->rank,
