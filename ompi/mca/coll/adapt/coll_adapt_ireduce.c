@@ -254,7 +254,7 @@ static int send_cb(ompi_request_t * req)
                            (send_context->buff, send_count, send_context->con->datatype,
                             send_context->peer,
                             context->con->ireduce_tag - send_context->frag_id,
-                            MCA_PML_BASE_SEND_SYNCHRONOUS, send_context->con->comm, &send_req));
+                            MCA_PML_BASE_SEND_STANDARD, send_context->con->comm, &send_req));
         if (MPI_SUCCESS != err) {
             return err;
         }
@@ -272,7 +272,8 @@ static int send_cb(ompi_request_t * req)
                          context->con->rank, context->con->tree->tree_root, num_sent,
                          context->con->num_segs));
     /* Check whether signal the condition, non root and sent all the segments */
-    if (context->con->tree->tree_root != context->con->rank && num_sent == context->con->num_segs) {
+    if (num_sent == context->con->num_segs &&
+        context->con->num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize) {
         ireduce_request_fini(context);
     } else {
         OBJ_RELEASE(context->con);
@@ -436,7 +437,7 @@ static int recv_cb(ompi_request_t * req)
             err = MCA_PML_CALL(isend(send_context->buff, send_count, send_context->con->datatype,
                                      send_context->peer,
                                      send_context->con->ireduce_tag - send_context->frag_id,
-                                     MCA_PML_BASE_SEND_SYNCHRONOUS, send_context->con->comm, &send_req));
+                                     MCA_PML_BASE_SEND_STANDARD, send_context->con->comm, &send_req));
             if (MPI_SUCCESS != err) {
                 return err;
             }
@@ -462,8 +463,8 @@ static int recv_cb(ompi_request_t * req)
                               (opal_free_list_item_t *) context->inbuf);
     }
     /* If this is root and has received all the segments */
-    if (context->con->tree->tree_root == context->con->rank
-        && num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize) {
+    if (num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize &&
+        (context->con->tree->tree_root == context->con->rank || context->con->num_sent_segs == context->con->num_segs)) {
         ireduce_request_fini(context);
     } else {
         OBJ_RELEASE(context->con);
@@ -771,7 +772,7 @@ int ompi_coll_adapt_ireduce_generic(const void *sbuf, void *rbuf, int count,
                 err = MCA_PML_CALL(isend
                                    (context->buff, send_count, dtype, tree->tree_prev,
                                     con->ireduce_tag - context->frag_id,
-                                    MCA_PML_BASE_SEND_SYNCHRONOUS, comm, &send_req));
+                                    MCA_PML_BASE_SEND_STANDARD, comm, &send_req));
                 if (MPI_SUCCESS != err) {
                     return err;
                 }
