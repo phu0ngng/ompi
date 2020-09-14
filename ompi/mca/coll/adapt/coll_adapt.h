@@ -3,9 +3,9 @@
  *                         of Tennessee Research Foundation.  All rights
  *                         reserved.
  * $COPYRIGHT$
- * 
+ *
  * Additional copyrights may follow
- * 
+ *
  * $HEADER$
  */
 
@@ -24,6 +24,17 @@
 BEGIN_C_DECLS
 
 typedef struct mca_coll_adapt_module_t mca_coll_adapt_module_t;
+
+typedef enum {
+    OMPI_COLL_ADAPT_ALGORITHM_TUNED = 0,
+    OMPI_COLL_ADAPT_ALGORITHM_BINOMIAL,
+    OMPI_COLL_ADAPT_ALGORITHM_IN_ORDER_BINOMIAL,
+    OMPI_COLL_ADAPT_ALGORITHM_BINARY,
+    OMPI_COLL_ADAPT_ALGORITHM_PIPELINE,
+    OMPI_COLL_ADAPT_ALGORITHM_CHAIN,
+    OMPI_COLL_ADAPT_ALGORITHM_LINEAR,
+    OMPI_COLL_ADAPT_ALGORITHM_COUNT /* number of algorithms, keep last! */
+} ompi_coll_adapt_algorithm_t;
 
 /*
  * Structure to hold the adapt coll component.  First it holds the
@@ -110,6 +121,9 @@ struct mca_coll_adapt_module_t {
 
     /* To be able to fallback when the cases are not supported */
     struct mca_coll_adapt_collective_fallback_s previous_routines[ADAPT_COLLCOUNT];
+
+    /* cached topologies */
+    opal_list_t *topo_cache;
 
     /* Whether this module has been lazily initialized or not yet */
     bool adapt_enabled;

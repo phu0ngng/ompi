@@ -41,6 +41,7 @@
 #include "ompi/mca/coll/base/coll_tags.h"
 #include "ompi/mca/pml/pml.h"
 #include "coll_adapt_algorithms.h"
+#include "coll_adapt_topocache.h"
 
 
 /*
@@ -52,6 +53,7 @@
  */
 static void adapt_module_construct(mca_coll_adapt_module_t * module)
 {
+    module->topo_cache    = NULL;
     module->adapt_enabled = false;
 }
 
@@ -60,6 +62,14 @@ static void adapt_module_construct(mca_coll_adapt_module_t * module)
  */
 static void adapt_module_destruct(mca_coll_adapt_module_t * module)
 {
+    if (NULL != module->topo_cache) {
+        adapt_topology_cache_item_t *item;
+        while (NULL != (item = (adapt_topology_cache_item_t*)opal_list_remove_first(module->topo_cache))) {
+            OBJ_RELEASE(item);
+        }
+        OBJ_RELEASE(module->topo_cache);
+        module->topo_cache = NULL;
+    }
     module->adapt_enabled = false;
 }
 

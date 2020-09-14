@@ -3,9 +3,9 @@
  *                         of Tennessee Research Foundation.  All rights
  *                         reserved.
  * $COPYRIGHT$
- * 
+ *
  * Additional copyrights may follow
- * 
+ *
  * $HEADER$
  */
 
@@ -15,44 +15,16 @@
 #include "coll_adapt_algorithms.h"
 #include "coll_adapt_context.h"
 #include "coll_adapt_item.h"
+#include "coll_adapt_topocache.h"
 #include "ompi/constants.h"
-#include "ompi/mca/coll/coll.h"
 #include "ompi/mca/coll/base/coll_base_util.h"
 #include "ompi/mca/pml/pml.h"
-#include "ompi/mca/coll/base/coll_base_functions.h"
 #include "ompi/mca/coll/base/coll_base_topo.h"
 
-static int ompi_coll_adapt_ireduce_tuned(IREDUCE_ARGS);
-static int ompi_coll_adapt_ireduce_binomial(IREDUCE_ARGS);
-static int ompi_coll_adapt_ireduce_in_order_binomial(IREDUCE_ARGS);
-static int ompi_coll_adapt_ireduce_binary(IREDUCE_ARGS);
-static int ompi_coll_adapt_ireduce_pipeline(IREDUCE_ARGS);
-static int ompi_coll_adapt_ireduce_chain(IREDUCE_ARGS);
-static int ompi_coll_adapt_ireduce_linear(IREDUCE_ARGS);
 static int ompi_coll_adapt_ireduce_generic(IREDUCE_ARGS,
                                            ompi_coll_tree_t * tree, size_t seg_size);
 
 /* MPI_Reduce and MPI_Ireduce in the ADAPT module only work for commutative operations */
-
-typedef int (*ompi_coll_adapt_ireduce_fn_t) (const void *sbuf,
-                                            void *rbuf,
-                                            int count,
-                                            struct ompi_datatype_t * datatype,
-                                            struct ompi_op_t * op,
-                                            int root,
-                                            struct ompi_communicator_t * comm,
-                                            ompi_request_t ** request,
-                                            mca_coll_base_module_t * module);
-
-static ompi_coll_adapt_algorithm_index_t ompi_coll_adapt_ireduce_algorithm_index[] = {
-    {0, {.ireduce_fn_ptr = ompi_coll_adapt_ireduce_tuned}},
-    {1, {.ireduce_fn_ptr = ompi_coll_adapt_ireduce_binomial}},
-    {2, {.ireduce_fn_ptr = ompi_coll_adapt_ireduce_in_order_binomial}},
-    {3, {.ireduce_fn_ptr = ompi_coll_adapt_ireduce_binary}},
-    {4, {.ireduce_fn_ptr = ompi_coll_adapt_ireduce_pipeline}},
-    {5, {.ireduce_fn_ptr = ompi_coll_adapt_ireduce_chain}},
-    {6, {.ireduce_fn_ptr = ompi_coll_adapt_ireduce_linear}},
-};
 
 /*
  * Set up MCA parameters of MPI_Reduce and MPI_Ireduce
@@ -67,7 +39,7 @@ int ompi_coll_adapt_ireduce_register(void)
                                     OPAL_INFO_LVL_5, MCA_BASE_VAR_SCOPE_READONLY,
                                     &mca_coll_adapt_component.adapt_ireduce_algorithm);
     if( (mca_coll_adapt_component.adapt_ireduce_algorithm < 0) ||
-        (mca_coll_adapt_component.adapt_ireduce_algorithm > (int32_t)(sizeof(ompi_coll_adapt_ireduce_algorithm_index) / sizeof(ompi_coll_adapt_algorithm_index_t))) ) {
+        (mca_coll_adapt_component.adapt_ireduce_algorithm > OMPI_COLL_ADAPT_ALGORITHM_COUNT) ) {
         mca_coll_adapt_component.adapt_ireduce_algorithm = 1;
     }
 
@@ -282,7 +254,7 @@ static int send_cb(ompi_request_t * req)
                            (send_context->buff, send_count, send_context->con->datatype,
                             send_context->peer,
                             context->con->ireduce_tag - send_context->frag_id,
-                            MCA_PML_BASE_SEND_SYNCHRONOUS, send_context->con->comm, &send_req));
+                            MCA_PML_BASE_SEND_STANDARD, send_context->con->comm, &send_req));
         if (MPI_SUCCESS != err) {
             return err;
         }
@@ -300,7 +272,8 @@ static int send_cb(ompi_request_t * req)
                          context->con->rank, context->con->tree->tree_root, num_sent,
                          context->con->num_segs));
     /* Check whether signal the condition, non root and sent all the segments */
-    if (context->con->tree->tree_root != context->con->rank && num_sent == context->con->num_segs) {
+    if (num_sent == context->con->num_segs &&
+        context->con->num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize) {
         ireduce_request_fini(context);
     } else {
         OBJ_RELEASE(context->con);
@@ -467,11 +440,10 @@ static int recv_cb(ompi_request_t * req)
                                  send_context->con->ireduce_tag - send_context->frag_id));
 
             ompi_request_t *send_req;
-            err = MCA_PML_CALL(isend
-                               (send_context->buff, send_count, send_context->con->datatype,
-                                send_context->peer,
-                                send_context->con->ireduce_tag - send_context->frag_id,
-                                MCA_PML_BASE_SEND_SYNCHRONOUS, send_context->con->comm, &send_req));
+            err = MCA_PML_CALL(isend(send_context->buff, send_count, send_context->con->datatype,
+                                     send_context->peer,
+                                     send_context->con->ireduce_tag - send_context->frag_id,
+                                     MCA_PML_BASE_SEND_STANDARD, send_context->con->comm, &send_req));
             if (MPI_SUCCESS != err) {
                 return err;
             }
@@ -489,15 +461,8 @@ static int recv_cb(ompi_request_t * req)
                          context->con->tree->tree_root, num_recv_segs_t, context->con->num_segs,
                          context->con->tree->tree_nextsize));
     /* If this is root and has received all the segments */
-    if (context->con->tree->tree_root == context->con->rank
-        && num_recv_segs_t == context->con->num_segs * context->con->tree->tree_nextsize) {
-        if (!keep_inbuf && context->inbuf != NULL) {
-            OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output,
-                                 "[%d]: root free context inbuf %p", context->con->rank,
-                                 (void *) context->inbuf));
-            opal_free_list_return(context->con->inbuf_list,
-                                  (opal_free_list_item_t *) context->inbuf);
-        }
+    if (num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize &&
+        (context->con->tree->tree_root == context->con->rank || context->con->num_sent_segs == context->con->num_segs)) {
         ireduce_request_fini(context);
     } else {
         if (!keep_inbuf && context->inbuf != NULL) {
@@ -540,100 +505,16 @@ int ompi_coll_adapt_ireduce(const void *sbuf, void *rbuf, int count, struct ompi
                          mca_coll_adapt_component.adapt_ireduce_max_send_requests,
                          mca_coll_adapt_component.adapt_ireduce_max_recv_requests));
 
-    ompi_coll_adapt_ireduce_fn_t reduce_func =
-        ompi_coll_adapt_ireduce_algorithm_index[mca_coll_adapt_component.adapt_ireduce_algorithm].ireduce_fn_ptr;
-    return reduce_func(sbuf, rbuf, count, dtype, op, root, comm, request, module);
-}
-
-/*
- * Ireduce functions with different algorithms
- */
-static int
-ompi_coll_adapt_ireduce_tuned(const void *sbuf, void *rbuf, int count,
-                              struct ompi_datatype_t *dtype, struct ompi_op_t *op,
-                              int root, struct ompi_communicator_t *comm,
-                              ompi_request_t ** request,
-                              mca_coll_base_module_t *module)
-{
-    OPAL_OUTPUT_VERBOSE((10, mca_coll_adapt_component.adapt_output, "tuned not implemented\n"));
-    return OMPI_ERR_NOT_IMPLEMENTED;
-}
-
-static int
-ompi_coll_adapt_ireduce_binomial(const void *sbuf, void *rbuf, int count,
-                                 struct ompi_datatype_t *dtype, struct ompi_op_t *op, int root,
-                                 struct ompi_communicator_t *comm, ompi_request_t ** request,
-                                 mca_coll_base_module_t * module)
-{
-    return ompi_coll_adapt_ireduce_generic(sbuf, rbuf, count, dtype, op, root, comm,
-                                           request, module, ompi_coll_base_topo_build_bmtree(comm, root),
-                                           mca_coll_adapt_component.adapt_ireduce_segment_size);
-}
-
-static int
-ompi_coll_adapt_ireduce_in_order_binomial(const void *sbuf, void *rbuf, int count,
-                                          struct ompi_datatype_t *dtype, struct ompi_op_t *op,
-                                          int root, struct ompi_communicator_t *comm,
-                                          ompi_request_t ** request,
-                                          mca_coll_base_module_t * module)
-{
-    return ompi_coll_adapt_ireduce_generic(sbuf, rbuf, count, dtype, op, root, comm,
-                                           request, module, ompi_coll_base_topo_build_in_order_bmtree(comm, root),
-                                           mca_coll_adapt_component.adapt_ireduce_segment_size);
-}
-
-static int
-ompi_coll_adapt_ireduce_binary(const void *sbuf, void *rbuf, int count,
-                               struct ompi_datatype_t *dtype, struct ompi_op_t *op, int root,
-                               struct ompi_communicator_t *comm, ompi_request_t ** request,
-                               mca_coll_base_module_t * module)
-{
-    return ompi_coll_adapt_ireduce_generic(sbuf, rbuf, count, dtype, op, root, comm,
-                                           request, module, ompi_coll_base_topo_build_tree(2, comm, root),
-                                           mca_coll_adapt_component.adapt_ireduce_segment_size);
-}
-
-static int
-ompi_coll_adapt_ireduce_pipeline(const void *sbuf, void *rbuf, int count,
-                                 struct ompi_datatype_t *dtype, struct ompi_op_t *op, int root,
-                                 struct ompi_communicator_t *comm, ompi_request_t ** request,
-                                 mca_coll_base_module_t * module)
-{
-    return ompi_coll_adapt_ireduce_generic(sbuf, rbuf, count, dtype, op, root, comm,
-                                           request, module, ompi_coll_base_topo_build_chain(1, comm, root),
-                                           mca_coll_adapt_component.adapt_ireduce_segment_size);
-}
-
-
-static int
-ompi_coll_adapt_ireduce_chain(const void *sbuf, void *rbuf, int count,
-                              struct ompi_datatype_t *dtype, struct ompi_op_t *op, int root,
-                              struct ompi_communicator_t *comm, ompi_request_t ** request,
-                              mca_coll_base_module_t * module)
-{
-    return ompi_coll_adapt_ireduce_generic(sbuf, rbuf, count, dtype, op, root, comm,
-                                           request, module, ompi_coll_base_topo_build_chain(4, comm, root),
-                                           mca_coll_adapt_component.adapt_ireduce_segment_size);
-}
-
-static int
-ompi_coll_adapt_ireduce_linear(const void *sbuf, void *rbuf, int count,
-                               struct ompi_datatype_t *dtype, struct ompi_op_t *op, int root,
-                               struct ompi_communicator_t *comm, ompi_request_t ** request,
-                               mca_coll_base_module_t * module)
-{
-    int fanout = ompi_comm_size(comm) - 1;
-    ompi_coll_tree_t *tree;
-    if (fanout < 1) {
-        tree = ompi_coll_base_topo_build_chain(1, comm, root);
-    } else if (fanout <= MAXTREEFANOUT) {
-        tree = ompi_coll_base_topo_build_tree(ompi_comm_size(comm) - 1, comm, root);
-    } else {
-        tree = ompi_coll_base_topo_build_tree(MAXTREEFANOUT, comm, root);
+    if (OMPI_COLL_ADAPT_ALGORITHM_TUNED == mca_coll_adapt_component.adapt_ireduce_algorithm) {
+        OPAL_OUTPUT_VERBOSE((10, mca_coll_adapt_component.adapt_output, "tuned not implemented\n"));
+        return OMPI_ERR_NOT_IMPLEMENTED;
     }
-    return ompi_coll_adapt_ireduce_generic(sbuf, rbuf, count, dtype, op, root, comm,
-                                           request, module, tree,
+
+
+    return ompi_coll_adapt_ireduce_generic(sbuf, rbuf, count, dtype, op, root, comm, request, module,
+                                           adapt_module_cached_topology(module, comm, root, mca_coll_adapt_component.adapt_ireduce_algorithm),
                                            mca_coll_adapt_component.adapt_ireduce_segment_size);
+
 }
 
 
@@ -896,7 +777,7 @@ int ompi_coll_adapt_ireduce_generic(const void *sbuf, void *rbuf, int count,
                 err = MCA_PML_CALL(isend
                                    (context->buff, send_count, dtype, tree->tree_prev,
                                     con->ireduce_tag - context->frag_id,
-                                    MCA_PML_BASE_SEND_SYNCHRONOUS, comm, &send_req));
+                                    MCA_PML_BASE_SEND_STANDARD, comm, &send_req));
                 if (MPI_SUCCESS != err) {
                     return err;
                 }

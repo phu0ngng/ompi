@@ -3,9 +3,9 @@
  *                         of Tennessee Research Foundation.  All rights
  *                         reserved.
  * $COPYRIGHT$
- * 
+ *
  * Additional copyrights may follow
- * 
+ *
  * $HEADER$
  */
 
@@ -14,6 +14,7 @@
 #include "coll_adapt.h"
 #include "coll_adapt_algorithms.h"
 #include "coll_adapt_context.h"
+#include "coll_adapt_topocache.h"
 #include "ompi/mca/coll/base/coll_base_util.h"
 #include "ompi/mca/coll/base/coll_base_functions.h"
 #include "opal/util/bit_ops.h"
@@ -22,31 +23,6 @@
 
 static int ompi_coll_adapt_ibcast_generic(IBCAST_ARGS,
                                    ompi_coll_tree_t * tree, size_t seg_size);
-static int ompi_coll_adapt_ibcast_binomial(IBCAST_ARGS);
-static int ompi_coll_adapt_ibcast_in_order_binomial(IBCAST_ARGS);
-static int ompi_coll_adapt_ibcast_binary(IBCAST_ARGS);
-static int ompi_coll_adapt_ibcast_pipeline(IBCAST_ARGS);
-static int ompi_coll_adapt_ibcast_chain(IBCAST_ARGS);
-static int ompi_coll_adapt_ibcast_linear(IBCAST_ARGS);
-static int ompi_coll_adapt_ibcast_tuned(IBCAST_ARGS);
-
-typedef int (*ompi_coll_adapt_ibcast_fn_t) (void *buff,
-                                           int count,
-                                           struct ompi_datatype_t * datatype,
-                                           int root,
-                                           struct ompi_communicator_t * comm,
-                                           ompi_request_t ** request,
-                                           mca_coll_base_module_t * module);
-
-static ompi_coll_adapt_algorithm_index_t ompi_coll_adapt_ibcast_algorithm_index[] = {
-    {0, {ompi_coll_adapt_ibcast_tuned}},
-    {1, {ompi_coll_adapt_ibcast_binomial}},
-    {2, {ompi_coll_adapt_ibcast_in_order_binomial}},
-    {3, {ompi_coll_adapt_ibcast_binary}},
-    {4, {ompi_coll_adapt_ibcast_pipeline}},
-    {5, {ompi_coll_adapt_ibcast_chain}},
-    {6, {ompi_coll_adapt_ibcast_linear}},
-};
 
 /*
  * Set up MCA parameters of MPI_Bcast and MPI_IBcast
@@ -61,7 +37,7 @@ int ompi_coll_adapt_ibcast_register(void)
                                     OPAL_INFO_LVL_5, MCA_BASE_VAR_SCOPE_READONLY,
                                     &mca_coll_adapt_component.adapt_ibcast_algorithm);
     if( (mca_coll_adapt_component.adapt_ibcast_algorithm < 0) ||
-        (mca_coll_adapt_component.adapt_ibcast_algorithm > (int32_t)(sizeof(ompi_coll_adapt_ibcast_algorithm_index) / sizeof(ompi_coll_adapt_algorithm_index_t))) ) {
+        (mca_coll_adapt_component.adapt_ibcast_algorithm >= OMPI_COLL_ADAPT_ALGORITHM_COUNT) ) {
         mca_coll_adapt_component.adapt_ibcast_algorithm = 1;
     }
 
@@ -350,92 +326,13 @@ int ompi_coll_adapt_ibcast(void *buff, int count, struct ompi_datatype_t *dataty
                          mca_coll_adapt_component.adapt_ibcast_max_send_requests,
                          mca_coll_adapt_component.adapt_ibcast_max_recv_requests));
 
-    ompi_coll_adapt_ibcast_fn_t bcast_func =
-        ompi_coll_adapt_ibcast_algorithm_index[mca_coll_adapt_component.adapt_ibcast_algorithm].ibcast_fn_ptr;
-    return bcast_func(buff, count, datatype, root, comm, request, module);
-}
-
-/*
- * Ibcast functions with different algorithms
- */
-static int
-ompi_coll_adapt_ibcast_tuned(void *buff, int count, struct ompi_datatype_t *datatype,
-                             int root, struct ompi_communicator_t *comm,
-                             ompi_request_t ** request,
-                             mca_coll_base_module_t *module)
-{
-    OPAL_OUTPUT_VERBOSE((10, mca_coll_adapt_component.adapt_output, "tuned not implemented\n"));
-    return OMPI_ERR_NOT_IMPLEMENTED;
-}
-
-static int
-ompi_coll_adapt_ibcast_binomial(void *buff, int count, struct ompi_datatype_t *datatype,
-                                int root, struct ompi_communicator_t *comm,
-                                ompi_request_t ** request, mca_coll_base_module_t * module)
-{
-    ompi_coll_tree_t *tree = ompi_coll_base_topo_build_bmtree(comm, root);
-    return ompi_coll_adapt_ibcast_generic(buff, count, datatype, root, comm, request, module, tree,
-                                          mca_coll_adapt_component.adapt_ibcast_segment_size);
-}
-
-static int
-ompi_coll_adapt_ibcast_in_order_binomial(void *buff, int count, struct ompi_datatype_t *datatype,
-                                         int root, struct ompi_communicator_t *comm,
-                                         ompi_request_t ** request,
-                                         mca_coll_base_module_t * module)
-{
-    ompi_coll_tree_t *tree = ompi_coll_base_topo_build_in_order_bmtree(comm, root);
-    return ompi_coll_adapt_ibcast_generic(buff, count, datatype, root, comm, request, module, tree,
-                                          mca_coll_adapt_component.adapt_ibcast_segment_size);
-}
-
-
-static int
-ompi_coll_adapt_ibcast_binary(void *buff, int count, struct ompi_datatype_t *datatype, int root,
-                              struct ompi_communicator_t *comm, ompi_request_t ** request,
-                              mca_coll_base_module_t * module)
-{
-    ompi_coll_tree_t *tree = ompi_coll_base_topo_build_tree(2, comm, root);
-    return ompi_coll_adapt_ibcast_generic(buff, count, datatype, root, comm, request, module, tree,
-                                          mca_coll_adapt_component.adapt_ibcast_segment_size);
-}
-
-static int
-ompi_coll_adapt_ibcast_pipeline(void *buff, int count, struct ompi_datatype_t *datatype,
-                                int root, struct ompi_communicator_t *comm,
-                                ompi_request_t ** request, mca_coll_base_module_t * module)
-{
-    ompi_coll_tree_t *tree = ompi_coll_base_topo_build_chain(1, comm, root);
-    return ompi_coll_adapt_ibcast_generic(buff, count, datatype, root, comm, request, module, tree,
-                                          mca_coll_adapt_component.adapt_ibcast_segment_size);
-}
-
-
-static int
-ompi_coll_adapt_ibcast_chain(void *buff, int count, struct ompi_datatype_t *datatype, int root,
-                             struct ompi_communicator_t *comm, ompi_request_t ** request,
-                             mca_coll_base_module_t * module)
-{
-    ompi_coll_tree_t *tree = ompi_coll_base_topo_build_chain(4, comm, root);
-    return ompi_coll_adapt_ibcast_generic(buff, count, datatype, root, comm, request, module, tree,
-                                          mca_coll_adapt_component.adapt_ibcast_segment_size);
-}
-
-static int
-ompi_coll_adapt_ibcast_linear(void *buff, int count, struct ompi_datatype_t *datatype, int root,
-                              struct ompi_communicator_t *comm, ompi_request_t ** request,
-                              mca_coll_base_module_t * module)
-{
-    int fanout = ompi_comm_size(comm) - 1;
-    ompi_coll_tree_t *tree;
-    if (fanout < 1) {
-        tree = ompi_coll_base_topo_build_chain(1, comm, root);
-    } else if (fanout <= MAXTREEFANOUT) {
-        tree = ompi_coll_base_topo_build_tree(ompi_comm_size(comm) - 1, comm, root);
-    } else {
-        tree = ompi_coll_base_topo_build_tree(MAXTREEFANOUT, comm, root);
+    if (OMPI_COLL_ADAPT_ALGORITHM_TUNED == mca_coll_adapt_component.adapt_ibcast_algorithm) {
+        OPAL_OUTPUT_VERBOSE((10, mca_coll_adapt_component.adapt_output, "tuned not implemented\n"));
+        return OMPI_ERR_NOT_IMPLEMENTED;
     }
-    return ompi_coll_adapt_ibcast_generic(buff, count, datatype, root, comm, request, module, tree,
+
+    return ompi_coll_adapt_ibcast_generic(buff, count, datatype, root, comm, request, module,
+                                          adapt_module_cached_topology(module, comm, root, mca_coll_adapt_component.adapt_ibcast_algorithm),
                                           mca_coll_adapt_component.adapt_ibcast_segment_size);
 }
 
