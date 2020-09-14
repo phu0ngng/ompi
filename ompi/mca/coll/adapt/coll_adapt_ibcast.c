@@ -357,7 +357,7 @@ int ompi_coll_adapt_ibcast_generic(void *buff, int count, struct ompi_datatype_t
     int num_segs;
 
     /* The request passed outside */
-    ompi_request_t *temp_request = NULL;
+    ompi_coll_base_nbc_request_t *temp_request = NULL;
     opal_mutex_t *mutex;
     /* Store the segments which are received */
     int *recv_array = NULL;
@@ -383,17 +383,17 @@ int ompi_coll_adapt_ibcast_generic(void *buff, int count, struct ompi_datatype_t
     }
 
     /* Set up request */
-    temp_request = OBJ_NEW(ompi_request_t);
-    OMPI_REQUEST_INIT(temp_request, false);
-    temp_request->req_state = OMPI_REQUEST_ACTIVE;
-    temp_request->req_type = OMPI_REQUEST_COLL;
-    temp_request->req_free = ompi_coll_adapt_request_free;
-    temp_request->req_status.MPI_SOURCE = 0;
-    temp_request->req_status.MPI_TAG = 0;
-    temp_request->req_status.MPI_ERROR = 0;
-    temp_request->req_status._cancelled = 0;
-    temp_request->req_status._ucount = 0;
-    *request = temp_request;
+    temp_request = OBJ_NEW(ompi_coll_base_nbc_request_t);
+    OMPI_REQUEST_INIT(&temp_request->super, false);
+    temp_request->super.req_state = OMPI_REQUEST_ACTIVE;
+    temp_request->super.req_type = OMPI_REQUEST_COLL;
+    temp_request->super.req_free = ompi_coll_adapt_request_free;
+    temp_request->super.req_status.MPI_SOURCE = 0;
+    temp_request->super.req_status.MPI_TAG = 0;
+    temp_request->super.req_status.MPI_ERROR = 0;
+    temp_request->super.req_status._cancelled = 0;
+    temp_request->super.req_status._ucount = 0;
+    *request = (ompi_request_t*)temp_request;
 
     /* Set up mutex */
     mutex = OBJ_NEW(opal_mutex_t);
@@ -431,7 +431,7 @@ int ompi_coll_adapt_ibcast_generic(void *buff, int count, struct ompi_datatype_t
     con->send_array = send_array;
     con->num_sent_segs = 0;
     con->mutex = mutex;
-    con->request = temp_request;
+    con->request = (ompi_request_t*)temp_request;
     con->tree = tree;
     con->ibcast_tag = ompi_coll_base_nbc_reserve_tags(comm, num_segs);
 
