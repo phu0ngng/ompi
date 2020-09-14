@@ -3,9 +3,9 @@
  *                         of Tennessee Research Foundation.  All rights
  *                         reserved.
  * $COPYRIGHT$
- * 
+ *
  * Additional copyrights may follow
- * 
+ *
  * $HEADER$
  */
 
@@ -220,10 +220,6 @@ static int ireduce_request_fini(ompi_coll_adapt_reduce_context_t * context)
         free(context->con->next_recv_segs);
     }
     OBJ_RELEASE(context->con);
-    OBJ_RELEASE(context->con);
-    OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output, "return context_list\n"));
-    opal_free_list_return(mca_coll_adapt_component.adapt_ireduce_context_free_list,
-                          (opal_free_list_item_t *) context);
     /* Complete the request */
     ompi_request_complete(temp_req, 1);
     return OMPI_SUCCESS;
@@ -299,17 +295,17 @@ static int send_cb(ompi_request_t * req)
                          "[%d]: In send_cb, root = %d, num_sent = %d, num_segs = %d\n",
                          context->con->rank, context->con->tree->tree_root, num_sent,
                          context->con->num_segs));
+
     /* Check whether signal the condition, non root and sent all the segments */
-    if (num_sent == context->con->num_segs &&
-        context->con->num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize) {
+    if (context->con->tree->tree_root != context->con->rank && num_sent == context->con->num_segs) {
         ireduce_request_fini(context);
-    } else {
-        OBJ_RELEASE(context->con);
-        OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output, "return context_list\n"));
-        opal_free_list_return(mca_coll_adapt_component.adapt_ireduce_context_free_list,
-                              (opal_free_list_item_t *) context);
     }
-    /* Call back function return 1, which means successful */
+
+    OBJ_RELEASE(context->con);
+    OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output, "return context_list\n"));
+    opal_free_list_return(mca_coll_adapt_component.adapt_ireduce_context_free_list,
+                          (opal_free_list_item_t *) context);
+    /* Call back function return 1 to signal that the request has been released */
     req->req_free(&req);
     return 1;
 }
@@ -433,9 +429,29 @@ static int recv_cb(ompi_request_t * req)
         OPAL_THREAD_UNLOCK(context->con->mutex_recv_list);
     }
 
-    /* Send to parent */
-    if (context->con->rank != context->con->tree->tree_root
-        && context->con->ongoing_send < mca_coll_adapt_component.adapt_ireduce_max_send_requests) {
+
+    int32_t num_recv_segs = opal_atomic_add_fetch_32(&(context->con->num_recv_segs), 1);
+    OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output,
+                         "[%d]: In recv_cb, tree = %p, root = %d, num_recv = %d, num_segs = %d, num_child = %d\n",
+                         context->con->rank, (void *) context->con->tree,
+                         context->con->tree->tree_root, num_recv_segs, context->con->num_segs,
+                         context->con->tree->tree_nextsize));
+    /* Prepare for releasing all acquired resources */
+    if (!keep_inbuf && NULL != context->inbuf) {
+        OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output,
+                             "[%d]: root free context inbuf %p", context->con->rank,
+                             (void *) context->inbuf));
+        opal_free_list_return(context->con->inbuf_list,
+                              (opal_free_list_item_t *) context->inbuf);
+    }
+    /* If this is root and has received all the segments */
+    if (context->con->tree->tree_root == context->con->rank) {
+        if (num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize) {
+            ireduce_request_fini(context);
+        }
+    }
+    else if (context->con->ongoing_send < mca_coll_adapt_component.adapt_ireduce_max_send_requests) {
+        /* Send to parent */
         OPAL_THREAD_LOCK(context->con->mutex_recv_list);
         ompi_coll_adapt_item_t *item = get_next_ready_item(context->con->recv_list, context->con->tree->tree_nextsize);
         OPAL_THREAD_UNLOCK(context->con->mutex_recv_list);
@@ -476,32 +492,16 @@ static int recv_cb(ompi_request_t * req)
         }
     }
 
-    int32_t num_recv_segs = opal_atomic_add_fetch_32(&(context->con->num_recv_segs), 1);
-    OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output,
-                         "[%d]: In recv_cb, tree = %p, root = %d, num_recv = %d, num_segs = %d, num_child = %d\n",
-                         context->con->rank, (void *) context->con->tree,
-                         context->con->tree->tree_root, num_recv_segs, context->con->num_segs,
-                         context->con->tree->tree_nextsize));
-    /* Prepare for releasing all acquired resources */
-    if (!keep_inbuf && NULL != context->inbuf) {
-        OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output,
-                             "[%d]: root free context inbuf %p", context->con->rank,
-                             (void *) context->inbuf));
-        opal_free_list_return(context->con->inbuf_list,
-                              (opal_free_list_item_t *) context->inbuf);
-    }
-    /* If this is root and has received all the segments */
-    if (num_recv_segs == context->con->num_segs * context->con->tree->tree_nextsize &&
-        (context->con->tree->tree_root == context->con->rank || context->con->num_sent_segs == context->con->num_segs)) {
-        ireduce_request_fini(context);
-    } else {
-        OBJ_RELEASE(context->con);
-        OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output, "[%d]: return context_list",
-                             context->con->rank));
-        opal_free_list_return(mca_coll_adapt_component.adapt_ireduce_context_free_list,
-                              (opal_free_list_item_t *) context);
-    }
+    OBJ_RELEASE(context->con);
+    OPAL_OUTPUT_VERBOSE((30, mca_coll_adapt_component.adapt_output, "[%d]: return context_list",
+                          context->con->rank));
+    opal_free_list_return(mca_coll_adapt_component.adapt_ireduce_context_free_list,
+                          (opal_free_list_item_t *) context);
+
+    /* release request object */
     req->req_free(&req);
+
+    /* return 1 because we have released the request already */
     return 1;
 }
 
