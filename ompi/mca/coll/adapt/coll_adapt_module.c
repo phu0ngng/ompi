@@ -192,6 +192,7 @@ mca_coll_base_module_t *ompi_coll_adapt_comm_query(struct ompi_communicator_t * 
  */
 int ompi_coll_adapt_request_free(ompi_request_t ** request)
 {
+    OMPI_REQUEST_FINI(*request);
     (*request)->req_state = OMPI_REQUEST_INVALID;
     OBJ_RELEASE(*request);
     *request = MPI_REQUEST_NULL;
