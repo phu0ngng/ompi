@@ -92,6 +92,14 @@ int ompi_coll_adapt_ireduce_register(void)
                                     MCA_BASE_VAR_SCOPE_READONLY,
                                     &mca_coll_adapt_component.adapt_inbuf_free_list_inc);
 
+    mca_coll_adapt_component.adapt_ireduce_synchronous_send = true;
+    (void) mca_base_component_var_register(c, "reduce_synchronous_send",
+                                           "Whether to use synchronous send operations during setup of reduce operations",
+                                           MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0,
+                                           OPAL_INFO_LVL_9,
+                                           MCA_BASE_VAR_SCOPE_READONLY,
+                                           &mca_coll_adapt_component.adapt_ireduce_synchronous_send);
+
     mca_coll_adapt_component.adapt_ireduce_context_free_list = NULL;
     return OMPI_SUCCESS;
 }
@@ -534,6 +542,8 @@ int ompi_coll_adapt_ireduce_generic(const void *sbuf, void *rbuf, int count,
     opal_mutex_t *mutex_op_list;
     /* A list to store the segments need to be sent */
     opal_list_t *recv_list;
+    mca_pml_base_send_mode_t sendmode = (mca_coll_adapt_component.adapt_ireduce_synchronous_send)
+                                        ? MCA_PML_BASE_SEND_SYNCHRONOUS : MCA_PML_BASE_SEND_STANDARD;
 
     /* Determine number of segments and number of elements sent per operation */
     rank = ompi_comm_rank(comm);
@@ -772,7 +782,7 @@ int ompi_coll_adapt_ireduce_generic(const void *sbuf, void *rbuf, int count,
                 err = MCA_PML_CALL(isend
                                    (context->buff, send_count, dtype, tree->tree_prev,
                                     con->ireduce_tag - context->frag_id,
-                                    MCA_PML_BASE_SEND_STANDARD, comm, &send_req));
+                                    sendmode, comm, &send_req));
                 if (MPI_SUCCESS != err) {
                     return err;
                 }

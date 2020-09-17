@@ -67,6 +67,7 @@ typedef struct mca_coll_adapt_component_t {
     size_t adapt_ibcast_segment_size;
     int adapt_ibcast_max_send_requests;
     int adapt_ibcast_max_recv_requests;
+    bool adapt_ibcast_synchronous_send;
     /* Bcast free list */
     opal_free_list_t *adapt_ibcast_context_free_list;
 
@@ -78,6 +79,7 @@ typedef struct mca_coll_adapt_component_t {
     int adapt_inbuf_free_list_min;
     int adapt_inbuf_free_list_max;
     int adapt_inbuf_free_list_inc;
+    bool adapt_ireduce_synchronous_send;
 
     /* Reduce free list */
     opal_free_list_t *adapt_ireduce_context_free_list;

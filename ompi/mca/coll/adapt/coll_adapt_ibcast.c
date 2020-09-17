@@ -65,6 +65,14 @@ int ompi_coll_adapt_ibcast_register(void)
                                     MCA_BASE_VAR_SCOPE_READONLY,
                                     &mca_coll_adapt_component.adapt_ibcast_max_recv_requests);
 
+    mca_coll_adapt_component.adapt_ibcast_synchronous_send = true;
+    (void) mca_base_component_var_register(c, "bcast_synchronous_send",
+                                           "Whether to use synchronous send operations during setup of bcast operations",
+                                           MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0,
+                                           OPAL_INFO_LVL_9,
+                                           MCA_BASE_VAR_SCOPE_READONLY,
+                                           &mca_coll_adapt_component.adapt_ibcast_synchronous_send);
+
     mca_coll_adapt_component.adapt_ibcast_context_free_list = NULL;
     return OMPI_SUCCESS;
 }
@@ -351,6 +359,9 @@ int ompi_coll_adapt_ibcast_generic(void *buff, int count, struct ompi_datatype_t
     /* Number of segments */
     int num_segs;
 
+    mca_pml_base_send_mode_t sendmode = (mca_coll_adapt_component.adapt_ibcast_synchronous_send)
+                                        ? MCA_PML_BASE_SEND_SYNCHRONOUS : MCA_PML_BASE_SEND_STANDARD;
+
     /* The request passed outside */
     ompi_coll_base_nbc_request_t *temp_request = NULL;
     opal_mutex_t *mutex;
@@ -487,7 +498,7 @@ int ompi_coll_adapt_ibcast_generic(void *buff, int count, struct ompi_datatype_t
                 err =
                     MCA_PML_CALL(isend
                                  (send_buff, send_count, datatype, context->peer,
-                                  con->ibcast_tag - i, MCA_PML_BASE_SEND_STANDARD, comm,
+                                  con->ibcast_tag - i, sendmode, comm,
                                   &send_req));
                 if (MPI_SUCCESS != err) {
                     return err;
