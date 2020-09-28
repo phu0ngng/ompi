@@ -18,6 +18,7 @@
 #include "opal/mca/pmix/pmix.h"
 #include "ompi/attribute/attribute.h"
 #include "ompi/message/message.h"
+#include "ompi/runtime/ompi_spc.h"
 #include "ompi/mca/pml/base/pml_base_bsend.h"
 #include "opal/mca/common/ucx/common_ucx.h"
 #include "pml_ucx_request.h"
@@ -625,6 +626,12 @@ int mca_pml_ucx_recv(void *buf, size_t count, ompi_datatype_t *datatype, int src
     MCA_COMMON_UCX_PROGRESS_LOOP(ompi_pml_ucx.ucp_worker) {
         status = ucp_request_test(req, &info);
         if (status != UCS_INPROGRESS) {
+#if SPC_ENABLE == 1
+            size_t dt_size;
+            ompi_datatype_type_size(datatype, &dt_size);
+            SPC_USER_OR_MPI(tag, dt_size*count,
+                            OMPI_SPC_BYTES_RECEIVED_USER, OMPI_SPC_BYTES_RECEIVED_MPI);
+#endif
             return mca_pml_ucx_set_recv_status_safe(mpi_status, status, &info);
         }
     }
@@ -825,6 +832,13 @@ int mca_pml_ucx_isend(const void *buf, size_t count, ompi_datatype_t *datatype,
                                                    mca_pml_ucx_send_completion);
 #endif
 
+#if SPC_ENABLE == 1
+    size_t dt_size;
+    ompi_datatype_type_size(datatype, &dt_size);
+    SPC_USER_OR_MPI(tag, dt_size*count,
+                    OMPI_SPC_BYTES_SENT_USER, OMPI_SPC_BYTES_SENT_MPI);
+#endif
+
     if (req == NULL) {
         PML_UCX_VERBOSE(8, "returning completed request");
         *request = &ompi_pml_ucx.completed_send_req;
@@ -915,6 +929,13 @@ int mca_pml_ucx_send(const void *buf, size_t count, ompi_datatype_t *datatype, i
     if (OPAL_UNLIKELY(NULL == ep)) {
         return OMPI_ERROR;
     }
+
+#if SPC_ENABLE == 1
+    size_t dt_size;
+    ompi_datatype_type_size(datatype, &dt_size);
+    SPC_USER_OR_MPI(tag, dt_size*count,
+                    OMPI_SPC_BYTES_SENT_USER, OMPI_SPC_BYTES_SENT_MPI);
+#endif
 
 #if HAVE_DECL_UCP_TAG_SEND_NBR
     if (OPAL_LIKELY((MCA_PML_BASE_SEND_BUFFERED != mode) &&
