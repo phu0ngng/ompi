@@ -98,6 +98,11 @@ int mca_coll_base_comm_select(ompi_communicator_t * comm)
     opal_list_item_t *item;
     char* which_func = "unknown";
     int ret;
+    int flag;
+    char *coll_requested = NULL;
+    char **coll_ignore_strings = NULL;
+    int num_coll_ignore_strings = 0;
+    char info_val[OPAL_MAX_INFO_VAL+1];
 
     /* Announce */
     opal_output_verbose(9, ompi_coll_base_framework.framework_output,
@@ -128,11 +133,45 @@ int mca_coll_base_comm_select(ompi_communicator_t * comm)
     /* List to store every valid module */
     comm->c_coll->module_list =  OBJ_NEW(opal_list_t);
 
+    /* Get the info value disaqualifying coll components */
+    opal_info_get(comm->super.s_info, "ompi_comm_coll_request",
+                  sizeof(info_val), info_val, &flag);
+
+    if (flag) {
+        coll_requested = info_val;
+    } else {
+        /* Get the info value disaqualifying coll components */
+        opal_info_get(comm->super.s_info, "ompi_comm_coll_ignore",
+                      sizeof(info_val), info_val, &flag);
+
+        if (flag) {
+            coll_ignore_strings = opal_argv_split(info_val, ',');
+            num_coll_ignore_strings = opal_argv_count(coll_ignore_strings);
+        }
+    }
     /* do the selection loop */
     for (item = opal_list_remove_first(selectable);
          NULL != item; item = opal_list_remove_first(selectable)) {
-
+        bool ignored = false;
         mca_coll_base_avail_coll_t *avail = (mca_coll_base_avail_coll_t *) item;
+
+        if (NULL != coll_requested && 0 != strcmp(coll_requested, avail->ac_component_name)) {
+            /* skip any coll module that was not requested */
+            continue;
+        }
+
+        if (NULL != coll_ignore_strings) {
+            for (int i = 0; i < num_coll_ignore_strings; ++i) {
+                if (0 == strcmp(coll_ignore_strings[i], avail->ac_component_name)) {
+                    ignored = true;
+                    break;
+                }
+            }
+
+            if (ignored) {
+                continue;
+            }
+        }
 
         /* initialize the module */
         ret = avail->ac_module->coll_module_enable(avail->ac_module, comm);
@@ -229,6 +268,8 @@ int mca_coll_base_comm_select(ompi_communicator_t * comm)
             OBJ_RELEASE(avail);
         }
     }
+
+    opal_argv_free(coll_ignore_strings);
 
     /* Done with the list from the check_components() call so release it. */
     OBJ_RELEASE(selectable);
