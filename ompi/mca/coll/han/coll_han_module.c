@@ -160,6 +160,8 @@ int mca_coll_han_init_query(bool enable_progress_threads,
 mca_coll_base_module_t *
 mca_coll_han_comm_query(struct ompi_communicator_t * comm, int *priority)
 {
+    int flag;
+    char info_val[OPAL_MAX_INFO_VAL+1];
     mca_coll_han_module_t *han_module;
 
     /*
@@ -194,7 +196,21 @@ mca_coll_han_comm_query(struct ompi_communicator_t * comm, int *priority)
     }
 
     /* All is good -- return a module */
-    han_module->topologic_level = mca_coll_han_component.topo_level;
+    han_module->topologic_level = GLOBAL_COMMUNICATOR;
+
+    if (NULL != comm->super.s_info) {
+        /* Get the info value disaqualifying coll components */
+        opal_info_get(comm->super.s_info, "ompi_comm_coll_han_topo_level",
+                      sizeof(info_val), info_val, &flag);
+
+        if (flag) {
+            if (0 == strcmp(info_val, "INTER_NODE")) {
+                han_module->topologic_level = INTER_NODE;
+            } else {
+                han_module->topologic_level = INTRA_NODE;
+            }
+        }
+    }
 
     han_module->super.coll_module_enable = han_module_enable;
     han_module->super.ft_event        = NULL;
