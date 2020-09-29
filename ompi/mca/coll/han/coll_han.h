@@ -207,7 +207,6 @@ typedef struct mca_coll_han_component_t {
     mca_coll_han_dynamic_rules_t dynamic_rules;
     /* Dynamic rules from mca parameter */
     COMPONENT_T mca_rules[COLLCOUNT][NB_TOPO_LVL];
-    TOPO_LVL_T topo_level;
 
     /* Define maximum dynamic errors printed by rank 0 with a 0 verbosity level */
     int max_dynamic_errors;

@@ -99,7 +99,6 @@ static int han_open(void)
     /* Get the global coll verbosity: it will be ours */
     mca_coll_han_component.han_output = ompi_coll_base_framework.framework_output;
 
-    mca_coll_han_component.topo_level = GLOBAL_COMMUNICATOR;
     return mca_coll_han_init_dynamic_rules();
 }
 

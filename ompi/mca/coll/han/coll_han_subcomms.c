@@ -110,7 +110,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     /*
      * This sub-communicator contains the ranks that share my node.
      */
-    mca_coll_han_component.topo_level = INTRA_NODE;
+    opal_info_set(&comm_info, "ompi_comm_coll_han_topo_level", "INTRA_NODE");
     ompi_comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0,
                          &comm_info, low_comm);
 
@@ -124,7 +124,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
      * This sub-communicator contains one process per node: processes with the
      * same intra-node rank id share such a sub-communicator
      */
-    mca_coll_han_component.topo_level = INTER_NODE;
+    opal_info_set(&comm_info, "ompi_comm_coll_han_topo_level", "INTER_NODE");
     ompi_comm_split_with_info(comm, w_rank, low_rank,
                               &comm_info, up_comm, false);
 
@@ -174,7 +174,6 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     comm->c_coll->coll_gather = old_gather;
     comm->c_coll->coll_gather_module = old_gather_module;
 
-    mca_coll_han_component.topo_level = GLOBAL_COMMUNICATOR;
     OBJ_DESTRUCT(&comm_info);
 }
 
