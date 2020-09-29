@@ -105,6 +105,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     int han_var_id;
     int tmp_han_priority;
     int vrank, *vranks;
+    opal_info_t comm_info;
 
     /* The sub communicators have already been created */
     if (NULL != han_module->sub_comm[INTRA_NODE]
@@ -131,6 +132,8 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, gather);
     HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, scatter);
 
+    OBJ_CONSTRUCT(&comm_info, opal_info_t);
+
     /* Create topological sub-communicators */
     w_rank = ompi_comm_rank(comm);
     w_size = ompi_comm_size(comm);
@@ -150,7 +153,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     /*
      * This sub-communicator contains the ranks that share my node.
      */
-    mca_coll_han_component.topo_level = INTRA_NODE;
+    opal_info_set(&comm_info, "ompi_comm_coll_han_topo_level", "INTRA_NODE");
     create_intranode_comm_new(comm, low_comm);
 
     /*
@@ -163,7 +166,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
      * This sub-communicator contains one process per node: processes with the
      * same intra-node rank id share such a sub-communicator
      */
-    mca_coll_han_component.topo_level = INTER_NODE;
+    opal_info_set(&comm_info, "ompi_comm_coll_han_topo_level", "INTER_NODE");
     create_internode_comm_new(comm, w_rank, low_rank, up_comm);
 
     up_rank = ompi_comm_rank(*up_comm);
@@ -211,7 +214,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, gather);
     HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, scatter);
 
-    mca_coll_han_component.topo_level = GLOBAL_COMMUNICATOR;
+    OBJ_DESTRUCT(&comm_info);
 }
 
 /**
