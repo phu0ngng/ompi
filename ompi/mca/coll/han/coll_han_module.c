@@ -192,18 +192,25 @@ mca_coll_han_comm_query(struct ompi_communicator_t * comm, int *priority)
     /* All is good -- return a module */
     han_module->topologic_level = GLOBAL_COMMUNICATOR;
 
-    /* Get the info value disaqualifying coll components */
-    opal_info_get(comm->super.s_info, "ompi_comm_coll_han_topo_level",
-                  sizeof(info_val), info_val, &flag);
+    if (comm->super.s_info) {
+        /* Get the info value disaqualifying coll components */
+        opal_info_get(comm->super.s_info, "ompi_comm_coll_han_topo_level",
+                      sizeof(info_val), info_val, &flag);
 
-    if (flag) {
-        if (0 == strcmp(info_val, "INTER_NODE")) {
-            han_module->topologic_level = INTER_NODE;
-        } else {
-            han_module->topologic_level = INTRA_NODE;
+        if (flag) {
+            if (0 == strcmp(info_val, "INTER_NODE")) {
+                han_module->topologic_level = INTER_NODE;
+            } else if (0 == strcmp(info_val, "INTRA_NODE")) {
+                han_module->topologic_level = INTRA_NODE;
+            }
         }
     }
 
+    opal_output_verbose(20, ompi_coll_base_framework.framework_output,
+                        "coll:han:comm_query (%d/%s): topo-level %s",
+                        comm->c_contextid, comm->c_name,
+                        (han_module->topologic_level == INTER_NODE) ? "INTER_NODE"
+                            : (han_module->topologic_level == INTRA_NODE) ? "INTRA_NODE" : "GLOBAL_COMMUNICATOR");
     han_module->super.coll_module_enable = han_module_enable;
     han_module->super.ft_event        = NULL;
     han_module->super.coll_alltoall   = NULL;

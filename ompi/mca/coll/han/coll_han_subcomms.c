@@ -270,6 +270,9 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     /*
      * Create the intranode sub-communicator and request sm
      */
+    opal_output_verbose(10, ompi_coll_base_framework.framework_output,
+                        "coll:han:comm_create (%d/%s): creating sm-based intra-comm",
+                        comm->c_contextid, comm->c_name);
     opal_info_set(&comm_info, "ompi_coll_sm_prio", "100");
     ompi_comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0,
                          &comm_info, &(low_comms[0]));
@@ -279,6 +282,9 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      */
     opal_info_delete(&comm_info, "ompi_coll_sm_prio");
     opal_info_set(&comm_info, "ompi_coll_shared_prio", "100");
+    opal_output_verbose(10, ompi_coll_base_framework.framework_output,
+                        "coll:han:comm_create (%d/%s): creating shared-based intra-comm",
+                        comm->c_contextid, comm->c_name);
     ompi_comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0,
                          &comm_info, &(low_comms[1]));
 
@@ -295,6 +301,9 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      */
     opal_info_delete(&comm_info, "ompi_coll_shared_prio");
     opal_info_set(&comm_info, "ompi_coll_libnbc_prio", "100");
+    opal_output_verbose(10, ompi_coll_base_framework.framework_output,
+                        "coll:han:comm_create (%d/%s): creating libnbc-based inter-comm",
+                        comm->c_contextid, comm->c_name);
     ompi_comm_split_with_info(comm, w_rank, low_rank,
                               &comm_info, &(up_comms[0]), false);
 
@@ -307,6 +316,9 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      */
     opal_info_delete(&comm_info, "ompi_coll_libnbc_prio");
     opal_info_set(&comm_info, "ompi_coll_adapt_prio", "100");
+    opal_output_verbose(10, ompi_coll_base_framework.framework_output,
+                        "coll:han:comm_create (%d/%s): creating adapt-based inter-comm",
+                        comm->c_contextid, comm->c_name);
     ompi_comm_split_with_info(comm, w_rank, low_rank,
                               &comm_info, &(up_comms[1]), false);
 
