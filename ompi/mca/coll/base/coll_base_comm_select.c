@@ -98,11 +98,6 @@ int mca_coll_base_comm_select(ompi_communicator_t * comm)
     opal_list_item_t *item;
     char* which_func = "unknown";
     int ret;
-    int flag;
-    char *coll_requested = NULL;
-    char **coll_ignore_strings = NULL;
-    int num_coll_ignore_strings = 0;
-    char info_val[OPAL_MAX_INFO_VAL+1];
 
     /* Announce */
     opal_output_verbose(9, ompi_coll_base_framework.framework_output,
@@ -133,45 +128,10 @@ int mca_coll_base_comm_select(ompi_communicator_t * comm)
     /* List to store every valid module */
     comm->c_coll->module_list =  OBJ_NEW(opal_list_t);
 
-    /* Get the info value disaqualifying coll components */
-    opal_info_get(comm->super.s_info, "ompi_comm_coll_request",
-                  sizeof(info_val), info_val, &flag);
-
-    if (flag) {
-        coll_requested = info_val;
-    } else {
-        /* Get the info value disaqualifying coll components */
-        opal_info_get(comm->super.s_info, "ompi_comm_coll_ignore",
-                      sizeof(info_val), info_val, &flag);
-
-        if (flag) {
-            coll_ignore_strings = opal_argv_split(info_val, ',');
-            num_coll_ignore_strings = opal_argv_count(coll_ignore_strings);
-        }
-    }
     /* do the selection loop */
     for (item = opal_list_remove_first(selectable);
          NULL != item; item = opal_list_remove_first(selectable)) {
-        bool ignored = false;
         mca_coll_base_avail_coll_t *avail = (mca_coll_base_avail_coll_t *) item;
-
-        if (NULL != coll_requested && 0 != strcmp(coll_requested, avail->ac_component_name)) {
-            /* skip any coll module that was not requested */
-            continue;
-        }
-
-        if (NULL != coll_ignore_strings) {
-            for (int i = 0; i < num_coll_ignore_strings; ++i) {
-                if (0 == strcmp(coll_ignore_strings[i], avail->ac_component_name)) {
-                    ignored = true;
-                    break;
-                }
-            }
-
-            if (ignored) {
-                continue;
-            }
-        }
 
         /* initialize the module */
         ret = avail->ac_module->coll_module_enable(avail->ac_module, comm);
@@ -268,8 +228,6 @@ int mca_coll_base_comm_select(ompi_communicator_t * comm)
             OBJ_RELEASE(avail);
         }
     }
-
-    opal_argv_free(coll_ignore_strings);
 
     /* Done with the list from the check_components() call so release it. */
     OBJ_RELEASE(selectable);
@@ -368,6 +326,8 @@ static opal_list_t *check_components(opal_list_t * components,
     mca_coll_base_module_2_3_0_t *module;
     opal_list_t *selectable;
     mca_coll_base_avail_coll_t *avail;
+    char info_key[OPAL_MAX_INFO_KEY+1];
+    char info_val[OPAL_MAX_INFO_VAL+1];
 
     /* Make a list of the components that query successfully */
     selectable = OBJ_NEW(opal_list_t);
@@ -376,7 +336,24 @@ static opal_list_t *check_components(opal_list_t * components,
     OPAL_LIST_FOREACH(cli, &ompi_coll_base_framework.framework_components, mca_base_component_list_item_t) {
         component = cli->cli_component;
 
+        /* TODO: is querying the component always required? */
         priority = check_one_component(comm, component, &module);
+        if (priority > 0 && NULL != comm->super.s_info) {
+            int flag;
+            int value;
+            /**
+             * The component is generally available so query its info key whether
+             * a specific priority was requested
+             */
+            snprintf(info_key, OPAL_MAX_INFO_KEY, "ompi_coll_%s_prio",
+                     component->mca_component_name);
+
+            opal_info_get(comm->super.s_info, info_key,
+                          sizeof(info_val), info_val, &flag);
+            if (flag && OMPI_SUCCESS == opal_info_value_to_int(info_val, &value)) {
+                priority = value;
+            }
+        }
         if (priority >= 0) {
             /* We have a component that indicated that it wants to run
                by giving us a module */

@@ -105,7 +105,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
 
     opal_info_t comm_info;
     OBJ_CONSTRUCT(&comm_info, opal_info_t);
-    opal_info_set(&comm_info, "ompi_comm_coll_request", "han");
+    opal_info_set(&comm_info, "ompi_coll_han_prio", "100");
 
     /*
      * This sub-communicator contains the ranks that share my node.
@@ -265,19 +265,20 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
 
     opal_info_t comm_info;
     OBJ_CONSTRUCT(&comm_info, opal_info_t);
-    opal_info_set(&comm_info, "ompi_comm_coll_ignore", "han");
+    opal_info_set(&comm_info, "ompi_coll_han_prio", "-1");
 
     /*
      * Create the intranode sub-communicator and request sm
      */
-    opal_info_set(&comm_info, "ompi_comm_coll_request", "sm");
+    opal_info_set(&comm_info, "ompi_coll_sm_prio", "100");
     ompi_comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0,
                          &comm_info, &(low_comms[0]));
 
     /*
      * Create the intranode sub-communicator and request shared
      */
-    opal_info_set(&comm_info, "ompi_comm_coll_request", "shared");
+    opal_info_delete(&comm_info, "ompi_coll_sm_prio");
+    opal_info_set(&comm_info, "ompi_coll_shared_prio", "100");
     ompi_comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0,
                          &comm_info, &(low_comms[1]));
 
@@ -292,7 +293,8 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      * This sub-communicator contains one process per node: processes with the
      * same intra-node rank id share such a sub-communicator
      */
-    opal_info_set(&comm_info, "ompi_comm_coll_request", "libnbc");
+    opal_info_delete(&comm_info, "ompi_coll_shared_prio");
+    opal_info_set(&comm_info, "ompi_coll_libnbc_prio", "100");
     ompi_comm_split_with_info(comm, w_rank, low_rank,
                               &comm_info, &(up_comms[0]), false);
 
@@ -303,7 +305,8 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      * Create the internode sub-communicator and request adapt
      * This sub-communicator contains one process per node.
      */
-    opal_info_set(&comm_info, "ompi_comm_coll_request", "adapt");
+    opal_info_delete(&comm_info, "ompi_coll_libnbc_prio");
+    opal_info_set(&comm_info, "ompi_coll_adapt_prio", "100");
     ompi_comm_split_with_info(comm, w_rank, low_rank,
                               &comm_info, &(up_comms[1]), false);
 
