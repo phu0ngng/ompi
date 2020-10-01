@@ -61,6 +61,9 @@ static int check_one_component(ompi_communicator_t * comm,
                                const mca_base_component_t * component,
                                mca_coll_base_module_2_3_0_t ** module);
 
+static opal_list_t * adjust_preferred_priorities(ompi_communicator_t *comm,
+                                                 opal_list_t *selectable);
+
 static int query(const mca_base_component_t * component,
                  ompi_communicator_t * comm, int *priority,
                  mca_coll_base_module_2_3_0_t ** module);
@@ -371,7 +374,7 @@ static opal_list_t *check_components(opal_list_t * components,
     opal_list_sort(selectable, avail_coll_compare);
 
     /* All done */
-    return selectable;
+    return adjust_preferred_priorities(comm, selectable);
 }
 
 
@@ -401,6 +404,83 @@ static int check_one_component(ompi_communicator_t * comm,
     }
 
     return priority;
+}
+
+/**
+ * Parse the info value preference string and adjust the position of components
+ * in the list of selected components.
+ * The info value for the key "ompi_comm_coll_preference" contains a comma-delimited
+ * list of components that should be moved to the front of the priority list, with the first
+ * element in the info value being the most preferred component.
+ * The info key may also contain components to ignore, prefixed with '^'.
+ * Example: The info key "sm,libnbc,^han,adapt" will give sm the highest priority,
+ * followed by libnbc and any other available component. Both han and adapt will
+ * be removed from the list of available components.
+ */
+static opal_list_t * adjust_preferred_priorities(ompi_communicator_t *comm,
+                                                 opal_list_t *selectable)
+{
+    if (NULL != comm->super.s_info) {
+        int flag;
+        char info_val[OPAL_MAX_INFO_VAL+1];
+        opal_info_get(comm->super.s_info, "ompi_comm_coll_preference",
+                      sizeof(info_val), info_val, &flag);
+        if (flag) {
+            /* re-order selectable list based on info key preferences */
+            char **coll_pref = opal_argv_split(info_val, ',');
+            if (NULL != coll_pref) {
+                /* count number of entries */
+                int count = 0;
+                int count_prefer = 0;
+                bool is_ignored = false;
+                while (NULL != coll_pref[count]) {
+                    int c = 0;
+                    /* skip whitespaces */
+                    while (' ' == coll_pref[count][c]) {
+                        ++c;
+                    }
+                    if (!is_ignored) {
+                        if ('^' == coll_pref[count][c]) {
+                            is_ignored = true;
+                        } else {
+                            ++count_prefer;
+                        }
+                    }
+                    ++count;
+                }
+
+                /* walk backwards through the preference list to move preferred
+                 * components to front of selection and remove ignored components */
+                for (int i = count-1; i >= 0; --i) {
+                    mca_coll_base_avail_coll_t *item;
+                    OPAL_LIST_FOREACH(item, selectable, mca_coll_base_avail_coll_t) {
+                        /* skip leading whitespaces and ^ character */
+                        int c = 0;
+                        while ('^' == coll_pref[i][c] || ' ' == coll_pref[i][c]) {
+                            ++c;
+                        }
+                        if (0 == strncmp(item->ac_component_name, &coll_pref[i][c],
+                                         strlen(item->ac_component_name))) {
+                            if (i > count_prefer) {
+                                /* Remove from selectable */
+                                opal_list_remove_item(selectable, (opal_list_item_t*)item);
+                            } else {
+                                /* Move to front */
+                                opal_list_remove_item(selectable, (opal_list_item_t*)item);
+                                opal_list_prepend(selectable, (opal_list_item_t*)item);
+                            }
+                            break;
+                        }
+                    }
+                    free(coll_pref[i]);
+                    coll_pref[i] = NULL;
+                }
+                free(coll_pref);
+            }
+        }
+    }
+
+    return selectable;
 }
 
 
