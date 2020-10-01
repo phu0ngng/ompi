@@ -64,6 +64,7 @@ struct mca_coll_han_reduce_args_s {
     int w_rank;
     int last_seg_count;
     bool noop;
+    bool is_tmp_rbuf;
 };
 typedef struct mca_coll_han_reduce_args_s mca_coll_han_reduce_args_t;
 
@@ -126,6 +127,7 @@ struct mca_coll_han_gather_args_s {
     int root_low_rank;
     int w_rank;
     bool noop;
+    bool is_mapbycore;
 };
 typedef struct mca_coll_han_gather_args_s mca_coll_han_gather_args_t;
 
@@ -207,7 +209,6 @@ typedef struct mca_coll_han_component_t {
     mca_coll_han_dynamic_rules_t dynamic_rules;
     /* Dynamic rules from mca parameter */
     COMPONENT_T mca_rules[COLLCOUNT][NB_TOPO_LVL];
-    TOPO_LVL_T topo_level;
 
     /* Define maximum dynamic errors printed by rank 0 with a 0 verbosity level */
     int max_dynamic_errors;
@@ -219,7 +220,7 @@ typedef void (*previous_dummy_fn_t) (void);
  * Structure used to store what is necessary for the collective operations
  * routines in case of fallback.
  */
-typedef struct mca_coll_han_collective_fallback_s {
+typedef struct mca_coll_han_single_collective_fallback_s {
     union {
         mca_coll_base_module_allgather_fn_t allgather;
         mca_coll_base_module_allgatherv_fn_t allgatherv;
@@ -229,9 +230,24 @@ typedef struct mca_coll_han_collective_fallback_s {
         mca_coll_base_module_reduce_fn_t reduce;
         mca_coll_base_module_scatter_fn_t scatter;
         previous_dummy_fn_t dummy;
-    } previous_routine;
-    mca_coll_base_module_t *previous_module;
-} mca_coll_han_collective_fallback_t;
+    };
+    mca_coll_base_module_t* module;
+} mca_coll_han_single_collective_fallback_t;
+
+/*
+ * The structure containing a replacement for all collective supported
+ * by HAN. This structure is used as a fallback during subcommunicator
+ * creation.
+ */
+typedef struct mca_coll_han_collectives_fallback_s {
+    mca_coll_han_single_collective_fallback_t allgather;
+    mca_coll_han_single_collective_fallback_t allgatherv;
+    mca_coll_han_single_collective_fallback_t allreduce;
+    mca_coll_han_single_collective_fallback_t bcast;
+    mca_coll_han_single_collective_fallback_t reduce;
+    mca_coll_han_single_collective_fallback_t gather;
+    mca_coll_han_single_collective_fallback_t scatter;
+} mca_coll_han_collectives_fallback_t;
 
 /** Coll han module */
 typedef struct mca_coll_han_module_t {
@@ -241,7 +257,6 @@ typedef struct mca_coll_han_module_t {
     /* Whether this module has been lazily initialized or not yet */
     bool enabled;
 
-    struct ompi_communicator_t *cached_comm;
     struct ompi_communicator_t **cached_low_comms;
     struct ompi_communicator_t **cached_up_comms;
     int *cached_vranks;
@@ -250,7 +265,7 @@ typedef struct mca_coll_han_module_t {
     bool are_ppn_imbalanced;
 
     /* To be able to fallback when the cases are not supported */
-    struct mca_coll_han_collective_fallback_s previous_routines[COLLCOUNT];
+    struct mca_coll_han_collectives_fallback_s fallback;
 
     /* To be able to fallback on reproducible algorithm */
     mca_coll_base_module_reduce_fn_t reproducible_reduce;
@@ -281,21 +296,53 @@ OBJ_CLASS_DECLARATION(mca_coll_han_module_t);
  * Some defines to stick to the naming used in the other components in terms of
  * fallback routines
  */
-#define previous_allgather  previous_routines[ALLGATHER].previous_routine.allgather
-#define previous_allgatherv previous_routines[ALLGATHERV].previous_routine.allgatherv
-#define previous_allreduce  previous_routines[ALLREDUCE].previous_routine.allreduce
-#define previous_bcast      previous_routines[BCAST].previous_routine.bcast
-#define previous_gather     previous_routines[GATHER].previous_routine.gather
-#define previous_reduce     previous_routines[REDUCE].previous_routine.reduce
-#define previous_scatter    previous_routines[SCATTER].previous_routine.scatter
+#define previous_allgather          fallback.allgather.allgather
+#define previous_allgather_module   fallback.allgather.module
 
-#define previous_allgather_module  previous_routines[ALLGATHER].previous_module
-#define previous_allgatherv_module previous_routines[ALLGATHERV].previous_module
-#define previous_allreduce_module  previous_routines[ALLREDUCE].previous_module
-#define previous_bcast_module      previous_routines[BCAST].previous_module
-#define previous_gather_module     previous_routines[GATHER].previous_module
-#define previous_reduce_module     previous_routines[REDUCE].previous_module
-#define previous_scatter_module    previous_routines[SCATTER].previous_module
+#define previous_allgatherv         fallback.allgatherv.allgatherv
+#define previous_allgatherv_module  fallback.allgatherv.module
+
+#define previous_allreduce          fallback.allreduce.allreduce
+#define previous_allreduce_module   fallback.allreduce.module
+
+#define previous_bcast              fallback.bcast.bcast
+#define previous_bcast_module       fallback.bcast.module
+
+#define previous_reduce             fallback.reduce.reduce
+#define previous_reduce_module      fallback.reduce.module
+
+#define previous_gather             fallback.gather.gather
+#define previous_gather_module      fallback.gather.module
+
+#define previous_scatter            fallback.scatter.scatter
+#define previous_scatter_module     fallback.scatter.module
+
+
+/* macro to correctly load a fallback collective module */
+#define HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, COLL)                            \
+    do {                                                                          \
+        if ( ((COMM)->c_coll->coll_ ## COLL ## _module) == (mca_coll_base_module_t*)(HANM) ) { \
+            (COMM)->c_coll->coll_ ## COLL = (HANM)->fallback.COLL.COLL;               \
+            mca_coll_base_module_t *coll_module = (COMM)->c_coll->coll_ ## COLL ## _module; \
+            (COMM)->c_coll->coll_ ## COLL ## _module = (HANM)->fallback.COLL.module;  \
+            OBJ_RETAIN((COMM)->c_coll->coll_ ## COLL ## _module);                     \
+            OBJ_RELEASE(coll_module);                                                 \
+        }                                                                             \
+    } while(0)
+
+/* macro to correctly load /all/ fallback collectives */
+#define HAN_LOAD_FALLBACK_COLLECTIVES(HANM, COMM)                            \
+    do {                                                                     \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, bcast);                     \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, scatter);                   \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, gather);                    \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, reduce);                    \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, allreduce);                 \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, allgather);                 \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, allgatherv);                \
+        han_module->enabled = false;  /* entire module set to pass-through from now on */ \
+    } while(0)
+
 
 /**
  * Global component instance
@@ -312,9 +359,18 @@ mca_coll_base_module_t *mca_coll_han_comm_query(struct ompi_communicator_t *comm
 int han_request_free(ompi_request_t ** request);
 
 /* Subcommunicator creation */
-void mca_coll_han_comm_create(struct ompi_communicator_t *comm, mca_coll_han_module_t * han_module);
-void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm, mca_coll_han_module_t *han_module);
-/* Gather topology information */
+int mca_coll_han_comm_create(struct ompi_communicator_t *comm, mca_coll_han_module_t * han_module);
+int mca_coll_han_comm_create_new(struct ompi_communicator_t *comm, mca_coll_han_module_t *han_module);
+
+/**
+ * Gather topology information
+ *
+ * Returns a pointer to the (potentially already cached) topology.
+ * NOTE: if the rank distribution is imbalanced, no effort will be made to gather
+ *       the topology at all ranks and instead NULL is returned and han_module->is_mapbycore
+ *       is set to false.
+ *       If HAN ever learns to deal with imbalanced topologies, this needs fixing!
+ */
 int *mca_coll_han_topo_init(struct ompi_communicator_t *comm, mca_coll_han_module_t * han_module,
                             int num_topo_level);
 
