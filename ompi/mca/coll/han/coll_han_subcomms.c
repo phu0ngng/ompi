@@ -26,7 +26,6 @@
 #include "coll_han.h"
 #include "coll_han_dynamic.h"
 
-
 /*
  * Local functions
  */
@@ -76,6 +75,20 @@ static void create_internode_comm_new(ompi_communicator_t *comm,
     return;
 }
 
+#define HAN_SUBCOM_SAVE_COLLECTIVE(FALLBACKS, COMM, HANM, COLL)          \
+    do {                                                                         \
+        (FALLBACKS).COLL.COLL = (COMM)->c_coll->coll_ ## COLL;                   \
+        (FALLBACKS).COLL.module = (COMM)->c_coll->coll_ ## COLL ## _module;      \
+        (COMM)->c_coll->coll_ ## COLL = (HANM)->fallback.COLL.COLL;              \
+        (COMM)->c_coll->coll_ ## COLL ## _module = (HANM)->fallback.COLL.module; \
+    } while(0)
+
+#define HAN_SUBCOM_LOAD_COLLECTIVE(FALLBACKS, COMM, HANM, COLL)          \
+    do {                                                                         \
+        (COMM)->c_coll->coll_ ## COLL = (FALLBACKS).COLL.COLL;                   \
+        (COMM)->c_coll->coll_ ## COLL ## _module = (FALLBACKS).COLL.module;      \
+    } while(0)
+
 /*
  * Routine that creates the local hierarchical sub-communicators
  * Called each time a collective is called.
@@ -87,24 +100,11 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     int low_rank, low_size, up_rank, w_rank, w_size;
     ompi_communicator_t **low_comm = &(han_module->sub_comm[INTRA_NODE]);
     ompi_communicator_t **up_comm = &(han_module->sub_comm[INTER_NODE]);
+    mca_coll_han_collectives_fallback_t fallbacks;
     const int *origin_priority;
     int han_var_id;
     int tmp_han_priority;
     int vrank, *vranks;
-
-    mca_coll_base_module_allreduce_fn_t old_allreduce;
-    mca_coll_base_module_t *old_allreduce_module;
-    mca_coll_base_module_allgather_fn_t old_allgather;
-    mca_coll_base_module_t *old_allgather_module;
-
-    mca_coll_base_module_bcast_fn_t old_bcast;
-    mca_coll_base_module_t *old_bcast_module;
-
-    mca_coll_base_module_gather_fn_t old_gather;
-    mca_coll_base_module_t *old_gather_module;
-
-    mca_coll_base_module_reduce_fn_t old_reduce;
-    mca_coll_base_module_t *old_reduce_module;
 
     /* The sub communicators have already been created */
     if (NULL != han_module->sub_comm[INTRA_NODE]
@@ -114,43 +114,22 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     }
 
     /*
-     * We cannot use han allreduce and allgather without sub-communicators
-     * Temporary set previous ones
+     * We cannot use han allreduce and allgather without sub-communicators,
+     * but we are in the creation of the data structures for the HAN, and
+     * temporarily need to save back the old collective.
      *
      * Allgather is used to compute vranks
      * Allreduce is used by ompi_comm_split_type in create_intranode_comm_new
      * Reduce + Bcast may be called by the allreduce implementation
      * Gather + Bcast may be called by the allgather implementation
      */
-    old_allreduce = comm->c_coll->coll_allreduce;
-    old_allreduce_module = comm->c_coll->coll_allreduce_module;
-
-    old_allgather = comm->c_coll->coll_allgather;
-    old_allgather_module = comm->c_coll->coll_allgather_module;
-
-    old_reduce = comm->c_coll->coll_reduce;
-    old_reduce_module = comm->c_coll->coll_reduce_module;
-
-    old_bcast = comm->c_coll->coll_bcast;
-    old_bcast_module = comm->c_coll->coll_bcast_module;
-
-    old_gather = comm->c_coll->coll_gather;
-    old_gather_module = comm->c_coll->coll_gather_module;
-
-    comm->c_coll->coll_allreduce = han_module->previous_allreduce;
-    comm->c_coll->coll_allreduce_module = han_module->previous_allreduce_module;
-
-    comm->c_coll->coll_allgather = han_module->previous_allgather;
-    comm->c_coll->coll_allgather_module = han_module->previous_allgather_module;
-
-    comm->c_coll->coll_reduce = han_module->previous_reduce;
-    comm->c_coll->coll_reduce_module = han_module->previous_reduce_module;
-
-    comm->c_coll->coll_bcast = han_module->previous_bcast;
-    comm->c_coll->coll_bcast_module = han_module->previous_bcast_module;
-
-    comm->c_coll->coll_gather = han_module->previous_gather;
-    comm->c_coll->coll_gather_module = han_module->previous_gather_module;
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, allgatherv);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, allgather);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, allreduce);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, bcast);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, reduce);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, gather);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, scatter);
 
     /* Create topological sub-communicators */
     w_rank = ompi_comm_rank(comm);
@@ -223,21 +202,14 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
     mca_base_var_set_value(han_var_id, origin_priority, sizeof(int),
                            MCA_BASE_VAR_SOURCE_SET, NULL);
 
-    /* Put allreduce, allgather, reduce, bcast and gather back */
-    comm->c_coll->coll_allreduce = old_allreduce;
-    comm->c_coll->coll_allreduce_module = old_allreduce_module;
-
-    comm->c_coll->coll_allgather = old_allgather;
-    comm->c_coll->coll_allgather_module = old_allgather_module;
-
-    comm->c_coll->coll_reduce = old_reduce;
-    comm->c_coll->coll_reduce_module = old_reduce_module;
-
-    comm->c_coll->coll_bcast = old_bcast;
-    comm->c_coll->coll_bcast_module = old_bcast_module;
-
-    comm->c_coll->coll_gather = old_gather;
-    comm->c_coll->coll_gather_module = old_gather_module;
+    /* Reset the saved collectives to point back to HAN */
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, allgatherv);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, allgather);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, allreduce);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, bcast);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, reduce);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, gather);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, scatter);
 
     mca_coll_han_component.topo_level = GLOBAL_COMMUNICATOR;
 }
@@ -313,9 +285,8 @@ static void create_internode_comm(ompi_communicator_t *comm,
                                   int intra_rank,
                                   ompi_communicator_t **sub_comm)
 {
-    int var_id;
+    int var_id, tmp_priority = 100;
     const int *sav_priority;
-    int tmp_priority = 100;
 
     /*
      * Upgrade the target module priority to make the resulting sub-communicator
@@ -352,27 +323,13 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
                               mca_coll_han_module_t *han_module)
 {
     int low_rank, low_size, up_rank, w_rank, w_size;
+    mca_coll_han_collectives_fallback_t fallbacks;
     ompi_communicator_t **low_comms;
     ompi_communicator_t **up_comms;
     const int *origin_priority;
     int han_var_id;
     int tmp_han_priority;
     int vrank, *vranks;
-
-    mca_coll_base_module_allreduce_fn_t old_allreduce;
-    mca_coll_base_module_t *old_allreduce_module;
-
-    mca_coll_base_module_allgather_fn_t old_allgather;
-    mca_coll_base_module_t *old_allgather_module;
-
-    mca_coll_base_module_bcast_fn_t old_bcast;
-    mca_coll_base_module_t *old_bcast_module;
-
-    mca_coll_base_module_gather_fn_t old_gather;
-    mca_coll_base_module_t *old_gather_module;
-
-    mca_coll_base_module_reduce_fn_t old_reduce;
-    mca_coll_base_module_t *old_reduce_module;
 
     /* use cached communicators if possible */
     if (han_module->cached_comm == comm &&
@@ -383,47 +340,24 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     }
 
     /*
-     * We cannot use han allreduce and allgather without sub-communicators
-     * Temporary set previous ones
+     * We cannot use han allreduce and allgather without sub-communicators,
+     * but we are in the creation of the data structures for the HAN, and
+     * temporarily need to save back the old collective.
      *
      * Allgather is used to compute vranks
      * Allreduce is used by ompi_comm_split_type in create_intranode_comm_new
      * Reduce + Bcast may be called by the allreduce implementation
      * Gather + Bcast may be called by the allgather implementation
      */
-    old_allreduce = comm->c_coll->coll_allreduce;
-    old_allreduce_module = comm->c_coll->coll_allreduce_module;
-
-    old_allgather = comm->c_coll->coll_allgather;
-    old_allgather_module = comm->c_coll->coll_allgather_module;
-
-    old_reduce = comm->c_coll->coll_reduce;
-    old_reduce_module = comm->c_coll->coll_reduce_module;
-
-    old_bcast = comm->c_coll->coll_bcast;
-    old_bcast_module = comm->c_coll->coll_bcast_module;
-
-    old_gather = comm->c_coll->coll_gather;
-    old_gather_module = comm->c_coll->coll_gather_module;
-
-    comm->c_coll->coll_allreduce = han_module->previous_allreduce;
-    comm->c_coll->coll_allreduce_module = han_module->previous_allreduce_module;
-
-    comm->c_coll->coll_allgather = han_module->previous_allgather;
-    comm->c_coll->coll_allgather_module = han_module->previous_allgather_module;
-
-    comm->c_coll->coll_reduce = han_module->previous_reduce;
-    comm->c_coll->coll_reduce_module = han_module->previous_reduce_module;
-
-    comm->c_coll->coll_bcast = han_module->previous_bcast;
-    comm->c_coll->coll_bcast_module = han_module->previous_bcast_module;
-
-    comm->c_coll->coll_gather = han_module->previous_gather;
-    comm->c_coll->coll_gather_module = han_module->previous_gather_module;
-
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, allgatherv);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, allgather);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, allreduce);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, bcast);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, reduce);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, gather);
+    HAN_SUBCOM_SAVE_COLLECTIVE(fallbacks, comm, han_module, scatter);
 
     /* create communicators if there is no cached communicator */
-
     w_rank = ompi_comm_rank(comm);
     w_size = ompi_comm_size(comm);
     low_comms = (struct ompi_communicator_t **)malloc(COLL_HAN_LOW_MODULES *
@@ -508,21 +442,14 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     mca_base_var_set_value(han_var_id, origin_priority, sizeof(int),
                            MCA_BASE_VAR_SOURCE_SET, NULL);
 
-    /* Put allreduce, allgather, reduce, bcast and gather back */
-    comm->c_coll->coll_allreduce = old_allreduce;
-    comm->c_coll->coll_allreduce_module = old_allreduce_module;
-
-    comm->c_coll->coll_allgather = old_allgather;
-    comm->c_coll->coll_allgather_module = old_allgather_module;
-
-    comm->c_coll->coll_reduce = old_reduce;
-    comm->c_coll->coll_reduce_module = old_reduce_module;
-
-    comm->c_coll->coll_bcast = old_bcast;
-    comm->c_coll->coll_bcast_module = old_bcast_module;
-
-    comm->c_coll->coll_gather = old_gather;
-    comm->c_coll->coll_gather_module = old_gather_module;
+    /* Reset the saved collectives to point back to HAN */
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, allgatherv);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, allgather);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, allreduce);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, bcast);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, reduce);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, gather);
+    HAN_SUBCOM_LOAD_COLLECTIVE(fallbacks, comm, han_module, scatter);
 }
 
 

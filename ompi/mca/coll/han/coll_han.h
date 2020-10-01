@@ -219,7 +219,7 @@ typedef void (*previous_dummy_fn_t) (void);
  * Structure used to store what is necessary for the collective operations
  * routines in case of fallback.
  */
-typedef struct mca_coll_han_collective_fallback_s {
+typedef struct mca_coll_han_single_collective_fallback_s {
     union {
         mca_coll_base_module_allgather_fn_t allgather;
         mca_coll_base_module_allgatherv_fn_t allgatherv;
@@ -229,10 +229,25 @@ typedef struct mca_coll_han_collective_fallback_s {
         mca_coll_base_module_reduce_fn_t reduce;
         mca_coll_base_module_scatter_fn_t scatter;
         previous_dummy_fn_t dummy;
-    } previous_routine;
-    mca_coll_base_module_t *previous_module;
-} mca_coll_han_collective_fallback_t;
+    };
+    mca_coll_base_module_t* module;
+} mca_coll_han_single_collective_fallback_t;
 
+/*
+ * The structure containing a replacement for all collective supported
+ * by HAN. This structure is used as a fallback during subcommunicator
+ * creation.
+ */
+typedef struct mca_coll_han_collectives_fallback_s {
+    mca_coll_han_single_collective_fallback_t allgather;
+    mca_coll_han_single_collective_fallback_t allgatherv;
+    mca_coll_han_single_collective_fallback_t allreduce;
+    mca_coll_han_single_collective_fallback_t bcast;
+    mca_coll_han_single_collective_fallback_t reduce;
+    mca_coll_han_single_collective_fallback_t gather;
+    mca_coll_han_single_collective_fallback_t scatter;
+} mca_coll_han_collectives_fallback_t;
+    
 /** Coll han module */
 typedef struct mca_coll_han_module_t {
     /** Base module */
@@ -250,7 +265,7 @@ typedef struct mca_coll_han_module_t {
     bool are_ppn_imbalanced;
 
     /* To be able to fallback when the cases are not supported */
-    struct mca_coll_han_collective_fallback_s previous_routines[COLLCOUNT];
+    struct mca_coll_han_collectives_fallback_s fallback;
 
     /* To be able to fallback on reproducible algorithm */
     mca_coll_base_module_reduce_fn_t reproducible_reduce;
@@ -281,21 +296,26 @@ OBJ_CLASS_DECLARATION(mca_coll_han_module_t);
  * Some defines to stick to the naming used in the other components in terms of
  * fallback routines
  */
-#define previous_allgather  previous_routines[ALLGATHER].previous_routine.allgather
-#define previous_allgatherv previous_routines[ALLGATHERV].previous_routine.allgatherv
-#define previous_allreduce  previous_routines[ALLREDUCE].previous_routine.allreduce
-#define previous_bcast      previous_routines[BCAST].previous_routine.bcast
-#define previous_gather     previous_routines[GATHER].previous_routine.gather
-#define previous_reduce     previous_routines[REDUCE].previous_routine.reduce
-#define previous_scatter    previous_routines[SCATTER].previous_routine.scatter
+#define previous_allgather          fallback.allgather.allgather
+#define previous_allgather_module   fallback.allgather.module
 
-#define previous_allgather_module  previous_routines[ALLGATHER].previous_module
-#define previous_allgatherv_module previous_routines[ALLGATHERV].previous_module
-#define previous_allreduce_module  previous_routines[ALLREDUCE].previous_module
-#define previous_bcast_module      previous_routines[BCAST].previous_module
-#define previous_gather_module     previous_routines[GATHER].previous_module
-#define previous_reduce_module     previous_routines[REDUCE].previous_module
-#define previous_scatter_module    previous_routines[SCATTER].previous_module
+#define previous_allgatherv         fallback.allgatherv.allgatherv
+#define previous_allgatherv_module  fallback.allgatherv.module
+
+#define previous_allreduce          fallback.allreduce.allreduce
+#define previous_allreduce_module   fallback.allreduce.module
+
+#define previous_bcast              fallback.bcast.bcast
+#define previous_bcast_module       fallback.bcast.module
+
+#define previous_reduce             fallback.reduce.reduce
+#define previous_reduce_module      fallback.reduce.module
+
+#define previous_gather             fallback.gather.gather
+#define previous_gather_module      fallback.gather.module
+
+#define previous_scatter            fallback.scatter.scatter
+#define previous_scatter_module     fallback.scatter.module
 
 /**
  * Global component instance

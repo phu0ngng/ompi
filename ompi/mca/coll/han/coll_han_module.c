@@ -25,19 +25,25 @@ static int han_module_enable(mca_coll_base_module_t * module,
 static int mca_coll_han_module_disable(mca_coll_base_module_t * module,
                                        struct ompi_communicator_t *comm);
 
+#define CLEAN_PREV_COLL(HANDLE, NAME)                    \
+    do {                                                 \
+        (HANDLE)->fallback.NAME.NAME = NULL;             \
+        (HANDLE)->fallback.NAME.module = NULL;           \
+    } while (0)
+
 /*
  * Module constructor
  */
 static void han_module_clear(mca_coll_han_module_t *han_module)
 {
-    for (int i = 0; i < COLLCOUNT; i++) {
-        /*
-         * Since the previous routines function pointers are declared as
-         * a union, initializing the dummy routineis enough
-         */
-        han_module->previous_routines[i].previous_routine.dummy = NULL;
-        han_module->previous_routines[i].previous_module = NULL;
-    }
+    CLEAN_PREV_COLL(han_module, allgather);
+    CLEAN_PREV_COLL(han_module, allgatherv);
+    CLEAN_PREV_COLL(han_module, allreduce);
+    CLEAN_PREV_COLL(han_module, bcast);
+    CLEAN_PREV_COLL(han_module, reduce);
+    CLEAN_PREV_COLL(han_module, gather);
+    CLEAN_PREV_COLL(han_module, scatter);
+
     han_module->reproducible_reduce = NULL;
     han_module->reproducible_reduce_module = NULL;
     han_module->reproducible_allreduce = NULL;

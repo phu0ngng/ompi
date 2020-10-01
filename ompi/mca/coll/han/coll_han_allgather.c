@@ -327,7 +327,6 @@ mca_coll_han_allgather_intra_simple(const void *sbuf, int scount,
             ompi_datatype_copy_content_same_ddt(rdtype, rcount, tmp_buf_start, tmp_send);
         }
     }
-    
 
     /* 1. low gather on node leaders into tmp_buf */
     if (MPI_IN_PLACE == sbuf) {
