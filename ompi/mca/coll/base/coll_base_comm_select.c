@@ -365,11 +365,12 @@ static opal_list_t *check_components(opal_list_t * components,
         int idx2, count_include = opal_argv_count(coll_argv);
         /* Allocate the coll_include argv */
         coll_include = (char**)malloc((count_include + 1) * sizeof(char*));
+        coll_include[count_include] = NULL; /* NULL terminated array */
         /* Let's clean the two array to contain only the included or excluded components */
         for( int idx = 0; NULL != coll_argv[idx]; idx++ ) {
             if( '^' == coll_argv[idx][0] ) {
                 coll_include[idx] = NULL;  /* NULL terminated array */
-                
+
                 /* Allocate the coll_exclude argv */
                 coll_exclude = (char**)malloc((count_include - idx + 1) * sizeof(char*));
                 /* save the exlucde components */
