@@ -142,7 +142,8 @@ mca_coll_han_init_dynamic_rules(void)
                                     coll_name, fileline, ALLGATHER, COLLCOUNT);
                 goto file_reading_error;
             }
-            coll_name = (char*)mca_coll_base_colltype_to_str(coll_id);
+            free(coll_name);
+            coll_name = mca_coll_base_colltype_to_str(coll_id);
         }
 
         if(!mca_coll_han_is_coll_dynamic_implemented(coll_id)) {

@@ -551,10 +551,10 @@ static const char* colltype_translation_table[] = {
     [COLLCOUNT] = NULL
 };
 
-const char* mca_coll_base_colltype_to_str(int collid)
+char* mca_coll_base_colltype_to_str(int collid)
 {
     if( (collid < 0) || (collid >= COLLCOUNT) ) {
         return NULL;
     }
-    return colltype_translation_table[collid];
+    return strdup(colltype_translation_table[collid]);
 }
