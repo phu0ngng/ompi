@@ -56,7 +56,6 @@ static void mca_coll_han_module_construct(mca_coll_han_module_t * module)
 
     module->enabled = false;
     module->super.coll_module_disable = mca_coll_han_module_disable;
-    module->cached_comm = NULL;
     module->cached_low_comms = NULL;
     module->cached_up_comms = NULL;
     module->cached_vranks = NULL;
@@ -179,7 +178,13 @@ mca_coll_han_comm_query(struct ompi_communicator_t * comm, int *priority)
                             comm->c_contextid, comm->c_name);
         return NULL;
     }
-
+    if( !ompi_group_have_remote_peers(comm->c_local_group) ) {
+        /* The group only contains local processes. Disable HAN for now */
+        opal_output_verbose(10, ompi_coll_base_framework.framework_output,
+                            "coll:han:comm_query (%d/%s): comm has only local processes; disqualifying myself",
+                            comm->c_contextid, comm->c_name);
+        return NULL;
+    }
     /* Get the priority level attached to this module. If priority is less
      * than or equal to 0, then the module is unavailable. */
     *priority = mca_coll_han_component.han_priority;
@@ -253,14 +258,14 @@ mca_coll_han_comm_query(struct ompi_communicator_t * comm, int *priority)
  */
 #define HAN_SAVE_PREV_COLL_API(__api)                                   \
     do {                                                                \
-        han_module->previous_ ## __api            = comm->c_coll->coll_ ## __api; \
-        han_module->previous_ ## __api ## _module = comm->c_coll->coll_ ## __api ## _module; \
         if (!comm->c_coll->coll_ ## __api || !comm->c_coll->coll_ ## __api ## _module) { \
             opal_output_verbose(1, ompi_coll_base_framework.framework_output, \
                                 "(%d/%s): no underlying " # __api"; disqualifying myself", \
                                 comm->c_contextid, comm->c_name); \
-            return OMPI_ERROR;                                  \
+            goto handle_error;                                  \
         }                                                       \
+        han_module->previous_ ## __api            = comm->c_coll->coll_ ## __api; \
+        han_module->previous_ ## __api ## _module = comm->c_coll->coll_ ## __api ## _module; \
         OBJ_RETAIN(han_module->previous_ ## __api ## _module);  \
     } while(0)
 
@@ -286,6 +291,17 @@ han_module_enable(mca_coll_base_module_t * module,
     mca_coll_han_allreduce_reproducible_decision(comm, module);
 
     return OMPI_SUCCESS;
+
+handle_error:
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_allgather_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_allgatherv_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_allreduce_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_bcast_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_gather_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_reduce_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_scatter_module);
+
+    return OMPI_ERROR;
 }
 
 /*

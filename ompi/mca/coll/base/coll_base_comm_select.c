@@ -38,6 +38,7 @@
 #include "mpi.h"
 #include "ompi/communicator/communicator.h"
 #include "opal/util/output.h"
+#include "opal/util/argv.h"
 #include "opal/util/show_help.h"
 #include "opal/class/opal_list.h"
 #include "opal/class/opal_object.h"
@@ -366,14 +367,14 @@ static opal_list_t *check_components(opal_list_t * components,
         /* Allocate the coll_include argv */
         coll_include = (char**)malloc((count_include + 1) * sizeof(char*));
         coll_include[count_include] = NULL; /* NULL terminated array */
-        /* Let's clean the two array to contain only the included or excluded components */
+        /* Dispatch the include/exclude in the corresponding arrays */
         for( int idx = 0; NULL != coll_argv[idx]; idx++ ) {
             if( '^' == coll_argv[idx][0] ) {
                 coll_include[idx] = NULL;  /* NULL terminated array */
 
                 /* Allocate the coll_exclude argv */
                 coll_exclude = (char**)malloc((count_include - idx + 1) * sizeof(char*));
-                /* save the exlucde components */
+                /* save the exclude components */
                 for( idx2 = idx; NULL != coll_argv[idx2]; idx2++ ) {
                     coll_exclude[idx2 - idx] = coll_argv[idx2];
                 }
