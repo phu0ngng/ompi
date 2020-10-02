@@ -61,9 +61,6 @@ static int check_one_component(ompi_communicator_t * comm,
                                const mca_base_component_t * component,
                                mca_coll_base_module_2_3_0_t ** module);
 
-static opal_list_t * adjust_preferred_priorities(ompi_communicator_t *comm,
-                                                 opal_list_t *selectable);
-
 static int query(const mca_base_component_t * component,
                  ompi_communicator_t * comm, int *priority,
                  mca_coll_base_module_2_3_0_t ** module);
@@ -315,6 +312,20 @@ static int avail_coll_compare (opal_list_item_t **a,
     return 0;
 }
 
+static inline int
+component_in_argv(char **argv, const char* component_name)
+{
+    if( NULL != argv ) {
+        while( NULL != *argv ) {
+            if( 0 == strcmp(component_name, *argv) ) {
+                return 1;
+            }
+            argv++;  /* move to the next argument */
+        }
+    }
+    return 0;
+}
+
 /*
  * For each module in the list, check and see if it wants to run, and
  * do the resulting priority comparison.  Make a list of modules to be
@@ -324,13 +335,65 @@ static int avail_coll_compare (opal_list_item_t **a,
 static opal_list_t *check_components(opal_list_t * components,
                                      ompi_communicator_t * comm)
 {
-    int priority;
+    int priority, flag;
     const mca_base_component_t *component;
     mca_base_component_list_item_t *cli;
     mca_coll_base_module_2_3_0_t *module;
     opal_list_t *selectable;
     mca_coll_base_avail_coll_t *avail;
+    char info_val[OPAL_MAX_INFO_VAL+1];
+    char **coll_argv = NULL, **coll_exclude = NULL, **coll_include = NULL;
 
+    /* Check if this communicator comes with restrictions on the collective modules
+     * it wants to use. The restrictions are consistent with the MCA parameter
+     * to limit the collective components loaded, but it applies for each
+     * communicator and is provided as an info key during the communicator
+     * creation. Unlike the MCA param, this info key is used not to select
+     * components but either to prevent components from being used or to
+     * force a change in the component priority.
+     */
+    if( NULL != comm->super.s_info) {
+        opal_info_get(comm->super.s_info, "ompi_comm_coll_preference",
+                      sizeof(info_val), info_val, &flag);
+        if( !flag ) {
+            goto proceed_to_select;
+        }
+        coll_argv = opal_argv_split(info_val, ',');
+        if(NULL == coll_argv) {
+            goto proceed_to_select;
+        }
+        int idx2, count_include = opal_argv_count(coll_argv);
+        /* Allocate the coll_include argv */
+        coll_include = (char**)malloc((count_include + 1) * sizeof(char*));
+        /* Let's clean the two array to contain only the included or excluded components */
+        for( int idx = 0; NULL != coll_argv[idx]; idx++ ) {
+            if( '^' == coll_argv[idx][0] ) {
+                coll_include[idx] = NULL;  /* NULL terminated array */
+                
+                /* Allocate the coll_exclude argv */
+                coll_exclude = (char**)malloc((count_include - idx + 1) * sizeof(char*));
+                /* save the exlucde components */
+                for( idx2 = idx; NULL != coll_argv[idx2]; idx2++ ) {
+                    coll_exclude[idx2 - idx] = coll_argv[idx2];
+                }
+                coll_exclude[idx2 - idx] = NULL;  /* NULL-terminated array */
+                coll_exclude[0] = coll_exclude[0] + 1;  /* get rid of the ^ */
+                count_include = idx;
+                break;
+            }
+            coll_include[idx] = coll_argv[idx];
+        }
+        /* Reverse the order of the coll_inclide argv to faciliate the ordering of
+         * the selected components reverse.
+         */
+        for( idx2 = 0; idx2 < (count_include - 1); idx2++ ) {
+            char* temp = coll_include[idx2];
+            coll_include[idx2] = coll_include[count_include - 1];
+            coll_include[count_include - 1] = temp;
+            count_include--;
+        }
+    }
+ proceed_to_select:
     /* Make a list of the components that query successfully */
     selectable = OBJ_NEW(opal_list_t);
 
@@ -338,6 +401,13 @@ static opal_list_t *check_components(opal_list_t * components,
     OPAL_LIST_FOREACH(cli, &ompi_coll_base_framework.framework_components, mca_base_component_list_item_t) {
         component = cli->cli_component;
 
+        /* dont bother is we have this component in the exclusion list */
+        if( component_in_argv(coll_exclude, component->mca_component_name) ) {
+            opal_output_verbose(10, ompi_coll_base_framework.framework_output,
+                                "coll:base:comm_select: component disqualified: %s (due to communicator info key)",
+                                component->mca_component_name );
+            continue;
+        }
         priority = check_one_component(comm, component, &module);
         if (priority >= 0) {
             /* We have a component that indicated that it wants to run
@@ -373,8 +443,29 @@ static opal_list_t *check_components(opal_list_t * components,
     /* Put this list in priority order */
     opal_list_sort(selectable, avail_coll_compare);
 
+    /* For all valid component reorder them not on their provided priorities but on
+     * the order requested in the info key. As at this point the coll_include is
+     * already ordered backward we can simply prepend the components.
+     */
+    mca_coll_base_avail_coll_t *item, *item_next;
+    OPAL_LIST_FOREACH_SAFE(item, item_next,
+                           selectable, mca_coll_base_avail_coll_t) {
+        if( component_in_argv(coll_include, item->ac_component_name) ) {
+            opal_list_remove_item(selectable, &item->super);
+            opal_list_prepend(selectable, &item->super);
+        }
+    }
+
+    opal_argv_free(coll_argv);
+    if( NULL != coll_exclude ) {
+        free(coll_exclude);
+    }
+    if( NULL != coll_include ) {
+        free(coll_include);
+    }
+
     /* All done */
-    return adjust_preferred_priorities(comm, selectable);
+    return selectable;
 }
 
 
@@ -405,84 +496,6 @@ static int check_one_component(ompi_communicator_t * comm,
 
     return priority;
 }
-
-/**
- * Parse the info value preference string and adjust the position of components
- * in the list of selected components.
- * The info value for the key "ompi_comm_coll_preference" contains a comma-delimited
- * list of components that should be moved to the front of the priority list, with the first
- * element in the info value being the most preferred component.
- * The info key may also contain components to ignore, prefixed with '^'.
- * Example: The info key "sm,libnbc,^han,adapt" will give sm the highest priority,
- * followed by libnbc and any other available component. Both han and adapt will
- * be removed from the list of available components.
- */
-static opal_list_t * adjust_preferred_priorities(ompi_communicator_t *comm,
-                                                 opal_list_t *selectable)
-{
-    if (NULL != comm->super.s_info) {
-        int flag;
-        char info_val[OPAL_MAX_INFO_VAL+1];
-        opal_info_get(comm->super.s_info, "ompi_comm_coll_preference",
-                      sizeof(info_val), info_val, &flag);
-        if (flag) {
-            /* re-order selectable list based on info key preferences */
-            char **coll_pref = opal_argv_split(info_val, ',');
-            if (NULL != coll_pref) {
-                /* count number of entries */
-                int count = 0;
-                int count_prefer = 0;
-                bool is_ignored = false;
-                while (NULL != coll_pref[count]) {
-                    int c = 0;
-                    /* skip whitespaces */
-                    while (' ' == coll_pref[count][c]) {
-                        ++c;
-                    }
-                    if (!is_ignored) {
-                        if ('^' == coll_pref[count][c]) {
-                            is_ignored = true;
-                        } else {
-                            ++count_prefer;
-                        }
-                    }
-                    ++count;
-                }
-
-                /* walk backwards through the preference list to move preferred
-                 * components to front of selection and remove ignored components */
-                for (int i = count-1; i >= 0; --i) {
-                    mca_coll_base_avail_coll_t *item;
-                    OPAL_LIST_FOREACH(item, selectable, mca_coll_base_avail_coll_t) {
-                        /* skip leading whitespaces and ^ character */
-                        int c = 0;
-                        while ('^' == coll_pref[i][c] || ' ' == coll_pref[i][c]) {
-                            ++c;
-                        }
-                        if (0 == strncmp(item->ac_component_name, &coll_pref[i][c],
-                                         strlen(item->ac_component_name))) {
-                            if (i > count_prefer) {
-                                /* Remove from selectable */
-                                opal_list_remove_item(selectable, (opal_list_item_t*)item);
-                            } else {
-                                /* Move to front */
-                                opal_list_remove_item(selectable, (opal_list_item_t*)item);
-                                opal_list_prepend(selectable, (opal_list_item_t*)item);
-                            }
-                            break;
-                        }
-                    }
-                    free(coll_pref[i]);
-                    coll_pref[i] = NULL;
-                }
-                free(coll_pref);
-            }
-        }
-    }
-
-    return selectable;
-}
-
 
 /**************************************************************************
  * Query functions
