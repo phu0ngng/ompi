@@ -105,7 +105,7 @@ void mca_coll_han_comm_create_new(struct ompi_communicator_t *comm,
      * same intra-node rank id share such a sub-communicator
      */
     opal_info_set(&comm_info, "ompi_comm_coll_han_topo_level", "INTER_NODE");
-    ompi_comm_split_with_info(comm, w_rank, low_rank, &comm_info, up_comm, false);
+    ompi_comm_split_with_info(comm, low_rank, w_rank, &comm_info, up_comm, false);
 
     up_rank = ompi_comm_rank(*up_comm);
 
@@ -230,7 +230,7 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      * same intra-node rank id share such a sub-communicator
      */
     opal_info_set(&comm_info, "ompi_comm_coll_preference", "libnbc,^han");
-    ompi_comm_split_with_info(comm, w_rank, low_rank, &comm_info, &(up_comms[0]), false);
+    ompi_comm_split_with_info(comm, low_rank, w_rank, &comm_info, &(up_comms[0]), false);
 
     up_rank = ompi_comm_rank(up_comms[0]);
 
@@ -239,7 +239,7 @@ void mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      * This sub-communicator contains one process per node.
      */
     opal_info_set(&comm_info, "ompi_comm_coll_preference", "adapt,^han");
-    ompi_comm_split_with_info(comm, w_rank, low_rank, &comm_info, &(up_comms[1]), false);
+    ompi_comm_split_with_info(comm, low_rank, w_rank, &comm_info, &(up_comms[1]), false);
 
     /*
      * Set my virtual rank number.
