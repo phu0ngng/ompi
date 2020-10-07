@@ -315,6 +315,17 @@ OBJ_CLASS_DECLARATION(mca_coll_han_module_t);
 #define previous_scatter            fallback.scatter.scatter
 #define previous_scatter_module     fallback.scatter.module
 
+
+/* macro to correctly load a fallback collective module */
+#define HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, COLL)          \
+    do {                                                                         \
+        (COMM)->c_coll->coll_ ## COLL = (HANM)->fallback.COLL.COLL;               \
+        mca_coll_base_module_t *coll_module = (COMM)->c_coll->coll_ ## COLL ## _module; \
+        (COMM)->c_coll->coll_ ## COLL ## _module = (HANM)->fallback.COLL.module;  \
+        OBJ_RETAIN((COMM)->c_coll->coll_ ## COLL ## _module);                     \
+        OBJ_RELEASE(coll_module);                                                 \
+    } while(0)
+
 /**
  * Global component instance
  */

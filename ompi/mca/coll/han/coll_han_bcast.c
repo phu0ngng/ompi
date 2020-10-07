@@ -76,8 +76,7 @@ mca_coll_han_bcast_intra(void *buff,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_bcast = han_module->fallback.bcast.bcast;
-        comm->c_coll->coll_bcast_module = han_module->fallback.bcast.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, bcast);
         return comm->c_coll->coll_bcast(buff, count, dtype, root,
                                         comm, comm->c_coll->coll_bcast_module);
     }
@@ -90,8 +89,7 @@ mca_coll_han_bcast_intra(void *buff,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_bcast = han_module->fallback.bcast.bcast;
-        comm->c_coll->coll_bcast_module = han_module->fallback.bcast.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, bcast);
         return comm->c_coll->coll_bcast(buff, count, dtype, root,
                                         comm, comm->c_coll->coll_bcast_module);
     }
@@ -231,8 +229,7 @@ mca_coll_han_bcast_intra_simple(void *buff,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_bcast = han_module->fallback.bcast.bcast;
-        comm->c_coll->coll_bcast_module = han_module->fallback.bcast.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, bcast);
         return comm->c_coll->coll_bcast(buff, count, dtype, root,
                                         comm, comm->c_coll->coll_bcast_module);
     }
@@ -245,8 +242,7 @@ mca_coll_han_bcast_intra_simple(void *buff,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_bcast = han_module->fallback.bcast.bcast;
-        comm->c_coll->coll_bcast_module = han_module->fallback.bcast.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, bcast);
         return comm->c_coll->coll_bcast(buff, count, dtype, root,
                                         comm, comm->c_coll->coll_bcast_module);
     }

@@ -169,8 +169,7 @@ mca_coll_han_reduce_intra(const void *sbuf,
     /* Put back the fallback collective support and call it once. All
      * future calls will then be automatically redirected.
      */
-    comm->c_coll->coll_reduce = han_module->fallback.reduce.reduce;
-    comm->c_coll->coll_reduce_module = han_module->fallback.reduce.module;
+    HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, reduce);
     return comm->c_coll->coll_reduce(sbuf, rbuf, count, dtype, op, root,
                                      comm, comm->c_coll->coll_reduce_module);
 }
@@ -347,8 +346,7 @@ mca_coll_han_reduce_intra_simple(const void *sbuf,
     /* Put back the fallback collective support and call it once. All
      * future calls will then be automatically redirected.
      */
-    comm->c_coll->coll_reduce = han_module->fallback.reduce.reduce;
-    comm->c_coll->coll_reduce_module = han_module->fallback.reduce.module;
+    HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, reduce);
     return comm->c_coll->coll_reduce(sbuf, rbuf, count, dtype, op, root,
                                      comm, comm->c_coll->coll_reduce_module);
 }

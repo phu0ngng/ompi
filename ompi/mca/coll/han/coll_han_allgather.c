@@ -73,8 +73,7 @@ mca_coll_han_allgather_intra(const void *sbuf, int scount,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_allgather = han_module->fallback.allgather.allgather;
-        comm->c_coll->coll_allgather_module = han_module->fallback.allgather.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, allgather);
         return comm->c_coll->coll_allgather(sbuf, scount, sdtype, rbuf, rcount, rdtype,
                                             comm, comm->c_coll->coll_allgather_module);
     }
@@ -89,9 +88,9 @@ mca_coll_han_allgather_intra(const void *sbuf, int scount,
     if (han_module->are_ppn_imbalanced) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle allgather with this communicator (imbalance). Fall back on another component\n"));
-        return han_module->previous_allgather(sbuf, scount, sdtype, rbuf,
-                                              rcount, rdtype,
-                                              comm, han_module->previous_allgather_module);
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, allgather);
+        return comm->c_coll->coll_allgather(sbuf, scount, sdtype, rbuf, rcount, rdtype,
+                                            comm, comm->c_coll->coll_allgather_module);
     }
 
     ompi_request_t *temp_request = NULL;
@@ -296,8 +295,7 @@ mca_coll_han_allgather_intra_simple(const void *sbuf, int scount,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_allgather = han_module->fallback.allgather.allgather;
-        comm->c_coll->coll_allgather_module = han_module->fallback.allgather.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, allgather);
         return comm->c_coll->coll_allgather(sbuf, scount, sdtype, rbuf, rcount, rdtype,
                                             comm, comm->c_coll->coll_allgather_module);
     }
@@ -311,8 +309,7 @@ mca_coll_han_allgather_intra_simple(const void *sbuf, int scount,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_allgather = han_module->fallback.gather.allgather;
-        comm->c_coll->coll_allgather_module = han_module->fallback.allgather.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, allgather);
         return comm->c_coll->coll_allgather(sbuf, scount, sdtype, rbuf, rcount, rdtype,
                                             comm, comm->c_coll->coll_allgather_module);
     }

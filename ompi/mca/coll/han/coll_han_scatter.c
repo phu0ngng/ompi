@@ -170,8 +170,7 @@ mca_coll_han_scatter_intra(const void *sbuf, int scount,
     /* Put back the fallback collective support and call it once. All
      * future calls will then be automatically redirected.
      */
-    comm->c_coll->coll_scatter = han_module->fallback.scatter.scatter;
-    comm->c_coll->coll_scatter_module = han_module->fallback.scatter.module;
+    HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, scatter);
     return comm->c_coll->coll_scatter(sbuf, scount, sdtype, rbuf, rcount, rdtype, root,
                                       comm, comm->c_coll->coll_scatter_module);
 }

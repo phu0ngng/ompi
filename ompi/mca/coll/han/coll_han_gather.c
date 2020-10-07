@@ -81,8 +81,7 @@ mca_coll_han_gather_intra(const void *sbuf, int scount,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_gather = han_module->fallback.gather.gather;
-        comm->c_coll->coll_gather_module = han_module->fallback.gather.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, gather);
         return comm->c_coll->coll_gather(sbuf, scount, sdtype, rbuf,
                                          rcount, rdtype, root,
                                          comm, comm->c_coll->coll_gather_module);
@@ -97,8 +96,7 @@ mca_coll_han_gather_intra(const void *sbuf, int scount,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_gather = han_module->fallback.gather.gather;
-        comm->c_coll->coll_gather_module = han_module->fallback.gather.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, gather);
         return comm->c_coll->coll_gather(sbuf, scount, sdtype, rbuf,
                                          rcount, rdtype, root,
                                          comm, comm->c_coll->coll_gather_module);
@@ -303,8 +301,7 @@ mca_coll_han_gather_intra_simple(const void *sbuf, int scount,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_gather = han_module->fallback.gather.gather;
-        comm->c_coll->coll_gather_module = han_module->fallback.gather.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, gather);
         return comm->c_coll->coll_gather(sbuf, scount, sdtype, rbuf,
                                          rcount, rdtype, root,
                                          comm, comm->c_coll->coll_gather_module);
@@ -319,8 +316,7 @@ mca_coll_han_gather_intra_simple(const void *sbuf, int scount,
         /* Put back the fallback collective support and call it once. All
          * future calls will then be automatically redirected.
          */
-        comm->c_coll->coll_gather = han_module->fallback.gather.gather;
-        comm->c_coll->coll_gather_module = han_module->fallback.gather.module;
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, gather);
         return comm->c_coll->coll_gather(sbuf, scount, sdtype, rbuf,
                                          rcount, rdtype, root,
                                          comm, comm->c_coll->coll_gather_module);
