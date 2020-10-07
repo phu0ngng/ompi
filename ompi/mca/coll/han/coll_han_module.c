@@ -259,7 +259,10 @@ mca_coll_han_comm_query(struct ompi_communicator_t * comm, int *priority)
             opal_output_verbose(1, ompi_coll_base_framework.framework_output, \
                                 "(%d/%s): no underlying " # __api"; disqualifying myself", \
                                 comm->c_contextid, comm->c_name); \
-            return OMPI_ERROR;                                  \
+            if (NULL != comm->c_coll->coll_ ## __api ## _module) { \
+                OBJ_RETAIN(han_module->previous_ ## __api ## _module); \
+            }                                                   \
+            goto handle_error;                                  \
         }                                                       \
         OBJ_RETAIN(han_module->previous_ ## __api ## _module);  \
     } while(0)
@@ -286,6 +289,17 @@ han_module_enable(mca_coll_base_module_t * module,
     mca_coll_han_allreduce_reproducible_decision(comm, module);
 
     return OMPI_SUCCESS;
+
+handle_error:
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_allgather_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_allgatherv_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_allreduce_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_bcast_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_gather_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_reduce_module);
+    OBJ_RELEASE_IF_NOT_NULL(han_module->previous_scatter_module);
+
+    return OMPI_ERROR;
 }
 
 /*
