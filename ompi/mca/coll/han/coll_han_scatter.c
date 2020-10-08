@@ -74,7 +74,10 @@ mca_coll_han_scatter_intra(const void *sbuf, int scount,
     if( OMPI_SUCCESS != mca_coll_han_comm_create(comm, han_module) ) {  /* Let's hope the error is consistently returned across the entire communicator */
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle scatter with this communicator. Fall back on another component\n"));
-        goto prev_scatter_intra;
+        /* HAN cannot work with this communicator so fallback on all collectives */
+        HAN_LOAD_FALLBACK_COLLECTIVES(han_module, comm);
+        return comm->c_coll->coll_scatter(sbuf, scount, sdtype, rbuf, rcount, rdtype, root,
+                                          comm, comm->c_coll->coll_scatter_module);
     }
 
     /* Topo must be initialized to know rank distribution which then is used to
@@ -83,7 +86,12 @@ mca_coll_han_scatter_intra(const void *sbuf, int scount,
     if (han_module->are_ppn_imbalanced) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle scatter with this communicator (imbalance). Fall back on another component\n"));
-        goto prev_scatter_intra;
+        /* Put back the fallback collective support and call it once. All
+         * future calls will then be automatically redirected.
+         */
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, scatter);
+        return comm->c_coll->coll_scatter(sbuf, scount, sdtype, rbuf, rcount, rdtype, root,
+                                          comm, comm->c_coll->coll_scatter_module);
     }
 
     ompi_communicator_t *low_comm =
@@ -166,13 +174,6 @@ mca_coll_han_scatter_intra(const void *sbuf, int scount,
     ompi_request_wait(&temp_request, MPI_STATUS_IGNORE);
     return OMPI_SUCCESS;
 
- prev_scatter_intra:
-    /* Put back the fallback collective support and call it once. All
-     * future calls will then be automatically redirected.
-     */
-    HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, scatter);
-    return comm->c_coll->coll_scatter(sbuf, scount, sdtype, rbuf, rcount, rdtype, root,
-                                      comm, comm->c_coll->coll_scatter_module);
 }
 
 /* us: upper level (intra-node) scatter task */

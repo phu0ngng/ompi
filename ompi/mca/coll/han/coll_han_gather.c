@@ -78,10 +78,8 @@ mca_coll_han_gather_intra(const void *sbuf, int scount,
     if( OMPI_SUCCESS != err ) {  /* Let's hope the error is consistently returned across the entire communicator */
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle gather with this communicator. Fall back on another component\n"));
-        /* Put back the fallback collective support and call it once. All
-         * future calls will then be automatically redirected.
-         */
-        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, gather);
+        /* HAN cannot work with this communicator so fallback on all collectives */
+        HAN_LOAD_FALLBACK_COLLECTIVES(han_module, comm);
         return comm->c_coll->coll_gather(sbuf, scount, sdtype, rbuf,
                                          rcount, rdtype, root,
                                          comm, comm->c_coll->coll_gather_module);
@@ -298,10 +296,8 @@ mca_coll_han_gather_intra_simple(const void *sbuf, int scount,
     if( OMPI_SUCCESS != mca_coll_han_comm_create_new(comm, han_module) ) {  /* Let's hope the error is consistently returned across the entire communicator */
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle gather with this communicator. Fall back on another component\n"));
-        /* Put back the fallback collective support and call it once. All
-         * future calls will then be automatically redirected.
-         */
-        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, gather);
+        /* HAN cannot work with this communicator so fallback on all collectives */
+        HAN_LOAD_FALLBACK_COLLECTIVES(han_module, comm);
         return comm->c_coll->coll_gather(sbuf, scount, sdtype, rbuf,
                                          rcount, rdtype, root,
                                          comm, comm->c_coll->coll_gather_module);

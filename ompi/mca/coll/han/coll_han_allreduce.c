@@ -99,7 +99,10 @@ mca_coll_han_allreduce_intra(const void *sbuf,
     if( OMPI_SUCCESS != mca_coll_han_comm_create(comm, han_module) ) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle allreduce with this communicator. Drop HAN support in this communicator and fall back on another component\n"));
-        goto remove_collective_module;
+        /* HAN cannot work with this communicator so fallback on all collectives */
+        HAN_LOAD_FALLBACK_COLLECTIVES(han_module, comm);
+        return comm->c_coll->coll_allreduce(sbuf, rbuf, count, dtype, op,
+                                            comm, comm->c_coll->coll_reduce_module);
     }
 
     ptrdiff_t extent, lb;
@@ -188,15 +191,6 @@ mca_coll_han_allreduce_intra(const void *sbuf,
  prev_allreduce_intra:
     return han_module->previous_allreduce(sbuf, rbuf, count, dtype, op,
                                           comm, han_module->previous_allreduce_module);
-
- remove_collective_module:
-    /* Put back the fallback collective support and call it once. All
-     * future calls will then be automatically redirected.
-     */
-    comm->c_coll->coll_allreduce = han_module->fallback.allreduce.allreduce;
-    comm->c_coll->coll_allreduce_module = han_module->fallback.allreduce.module;
-    return comm->c_coll->coll_allreduce(sbuf, rbuf, count, dtype, op,
-                                        comm, comm->c_coll->coll_reduce_module);
 }
 
 /* t0 task */
@@ -433,7 +427,10 @@ mca_coll_han_allreduce_intra_simple(const void *sbuf,
     if( OMPI_SUCCESS != mca_coll_han_comm_create_new(comm, han_module) ) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle allreduce with this communicator. Drop HAN support in this communicator and fall back on another component\n"));
-        goto remove_collective_module;
+        /* HAN cannot work with this communicator so fallback on all collectives */
+        HAN_LOAD_FALLBACK_COLLECTIVES(han_module, comm);
+        return comm->c_coll->coll_allreduce(sbuf, rbuf, count, dtype, op,
+                                            comm, comm->c_coll->coll_reduce_module);
     }
 
     low_comm = han_module->sub_comm[INTRA_NODE];
@@ -497,15 +494,6 @@ mca_coll_han_allreduce_intra_simple(const void *sbuf,
  prev_allreduce:
     return han_module->previous_allreduce(sbuf, rbuf, count, dtype, op,
                                           comm, han_module->previous_allreduce_module);
-
- remove_collective_module:
-    /* Put back the fallback collective support and call it once. All
-     * future calls will then be automatically redirected.
-     */
-    comm->c_coll->coll_allreduce = han_module->fallback.allreduce.allreduce;
-    comm->c_coll->coll_allreduce_module = han_module->fallback.allreduce.module;
-    return comm->c_coll->coll_allreduce(sbuf, rbuf, count, dtype, op,
-                                        comm, comm->c_coll->coll_reduce_module);
 }
 
 /* Find a fallback on reproducible algorithm

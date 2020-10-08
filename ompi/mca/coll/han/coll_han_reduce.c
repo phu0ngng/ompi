@@ -82,7 +82,10 @@ mca_coll_han_reduce_intra(const void *sbuf,
     if( OMPI_SUCCESS != mca_coll_han_comm_create(comm, han_module) ) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle reduce with this communicator. Drop HAN support in this communicator and fall back on another component\n"));
-        goto remove_collective_module;
+        /* HAN cannot work with this communicator so fallback on all modules */
+        HAN_LOAD_FALLBACK_COLLECTIVES(han_module, comm);
+        return comm->c_coll->coll_reduce(sbuf, rbuf, count, dtype, op, root,
+                                         comm, comm->c_coll->coll_reduce_module);
     }
 
     /* Topo must be initialized to know rank distribution which then is used to
@@ -91,7 +94,12 @@ mca_coll_han_reduce_intra(const void *sbuf,
     if (han_module->are_ppn_imbalanced) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle reduce with this communicator (imbalanced). Drop HAN support in this communicator and fall back on another component\n"));
-        goto remove_collective_module;
+        /* Put back the fallback collective support and call it once. All
+         * future calls will then be automatically redirected.
+         */
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, reduce);
+        return comm->c_coll->coll_reduce(sbuf, rbuf, count, dtype, op, root,
+                                         comm, comm->c_coll->coll_reduce_module);
     }
 
     ompi_datatype_get_extent(dtype, &lb, &extent);
@@ -164,14 +172,6 @@ mca_coll_han_reduce_intra(const void *sbuf,
     return han_module->previous_reduce(sbuf, rbuf, count, dtype, op, root,
                                        comm,
                                        han_module->previous_reduce_module);
-
- remove_collective_module:
-    /* Put back the fallback collective support and call it once. All
-     * future calls will then be automatically redirected.
-     */
-    HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, reduce);
-    return comm->c_coll->coll_reduce(sbuf, rbuf, count, dtype, op, root,
-                                     comm, comm->c_coll->coll_reduce_module);
 }
 
 /* t0 task: issue and wait for the low level reduce of segment 0 */
@@ -262,7 +262,10 @@ mca_coll_han_reduce_intra_simple(const void *sbuf,
     if( OMPI_SUCCESS != mca_coll_han_comm_create(comm, han_module) ) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle reduce with this communicator. Drop HAN support in this communicator and fall back on another component\n"));
-        goto remove_collective_module;
+        /* HAN cannot work with this communicator so fallback on all collectives */
+        HAN_LOAD_FALLBACK_COLLECTIVES(han_module, comm);
+        return comm->c_coll->coll_reduce(sbuf, rbuf, count, dtype, op, root,
+                                         comm, comm->c_coll->coll_reduce_module);
     }
 
     /* Topo must be initialized to know rank distribution which then is used to
@@ -271,7 +274,12 @@ mca_coll_han_reduce_intra_simple(const void *sbuf,
     if (han_module->are_ppn_imbalanced) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
                              "han cannot handle reduce with this communicator (imbalanced). Drop HAN support in this communicator and fall back on another component\n"));
-        goto remove_collective_module;
+        /* Put back the fallback collective support and call it once. All
+         * future calls will then be automatically redirected.
+         */
+        HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, reduce);
+        return comm->c_coll->coll_reduce(sbuf, rbuf, count, dtype, op, root,
+                                         comm, comm->c_coll->coll_reduce_module);
     }
 
     ompi_communicator_t *low_comm =
@@ -341,14 +349,6 @@ mca_coll_han_reduce_intra_simple(const void *sbuf,
  prev_reduce_intra:
     return han_module->previous_reduce(sbuf, rbuf, count, dtype, op, root,
                                        comm, han_module->previous_reduce_module);
-
- remove_collective_module:
-    /* Put back the fallback collective support and call it once. All
-     * future calls will then be automatically redirected.
-     */
-    HAN_LOAD_FALLBACK_COLLECTIVE(han_module, comm, reduce);
-    return comm->c_coll->coll_reduce(sbuf, rbuf, count, dtype, op, root,
-                                     comm, comm->c_coll->coll_reduce_module);
 }
 
 

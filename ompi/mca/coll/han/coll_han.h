@@ -319,13 +319,27 @@ OBJ_CLASS_DECLARATION(mca_coll_han_module_t);
 /* macro to correctly load a fallback collective module */
 #define HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, COLL)                            \
     do {                                                                          \
-        assert( ((COMM)->c_coll->coll_ ## COLL ## _module) == (mca_coll_base_module_t*)(HANM) );           \
-        (COMM)->c_coll->coll_ ## COLL = (HANM)->fallback.COLL.COLL;               \
-        mca_coll_base_module_t *coll_module = (COMM)->c_coll->coll_ ## COLL ## _module; \
-        (COMM)->c_coll->coll_ ## COLL ## _module = (HANM)->fallback.COLL.module;  \
-        OBJ_RETAIN((COMM)->c_coll->coll_ ## COLL ## _module);                     \
-        OBJ_RELEASE(coll_module);                                                 \
+        if ( ((COMM)->c_coll->coll_ ## COLL ## _module) == (mca_coll_base_module_t*)(HANM) ) { \
+            (COMM)->c_coll->coll_ ## COLL = (HANM)->fallback.COLL.COLL;               \
+            mca_coll_base_module_t *coll_module = (COMM)->c_coll->coll_ ## COLL ## _module; \
+            (COMM)->c_coll->coll_ ## COLL ## _module = (HANM)->fallback.COLL.module;  \
+            OBJ_RETAIN((COMM)->c_coll->coll_ ## COLL ## _module);                     \
+            OBJ_RELEASE(coll_module);                                                 \
+        }                                                                             \
     } while(0)
+
+/* macro to correctly load /all/ fallback collectives */
+#define HAN_LOAD_FALLBACK_COLLECTIVES(HANM, COMM)                            \
+    do {                                                                     \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, bcast);                     \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, scatter);                   \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, gather);                    \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, reduce);                    \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, allreduce);                 \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, allgather);                 \
+        HAN_LOAD_FALLBACK_COLLECTIVE(HANM, COMM, allgatherv);                \
+    } while(0)
+
 
 /**
  * Global component instance
