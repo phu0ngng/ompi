@@ -115,6 +115,7 @@ mca_coll_han_reduce_intra(const void *sbuf,
     int *vranks = han_module->cached_vranks;
     int low_rank = ompi_comm_rank(low_comm);
     int low_size = ompi_comm_size(low_comm);
+    int up_rank  = ompi_comm_rank(up_comm);
 
     int root_low_rank;
     int root_up_rank;
@@ -123,11 +124,18 @@ mca_coll_han_reduce_intra(const void *sbuf,
                          "[%d]: root_low_rank %d root_up_rank %d\n", w_rank, root_low_rank,
                          root_up_rank));
 
+    void *tmp_rbuf = rbuf;
+    void *tmp_rbuf_to_free = NULL;
+    if (low_rank == root_low_rank && root_up_rank != up_rank) {
+        tmp_rbuf = malloc(dtype_size*count);
+        tmp_rbuf_to_free = tmp_rbuf;
+    }
+
     /* Create t0 tasks for the first segment */
     mca_coll_task_t *t0 = OBJ_NEW(mca_coll_task_t);
     /* Setup up t0 task arguments */
     mca_coll_han_reduce_args_t *t = malloc(sizeof(mca_coll_han_reduce_args_t));
-    mca_coll_han_set_reduce_args(t, t0, (char *) sbuf, (char *) rbuf, seg_count, dtype,
+    mca_coll_han_set_reduce_args(t, t0, (char *) sbuf, (char *) tmp_rbuf, seg_count, dtype,
                                  op, root_up_rank, root_low_rank, up_comm, low_comm,
                                  num_segments, 0, w_rank, count - (num_segments - 1) * seg_count,
                                  low_rank != root_low_rank);
@@ -149,7 +157,9 @@ mca_coll_han_reduce_intra(const void *sbuf,
         /* Setup up t1 task arguments */
         t->cur_task = t1;
         t->sbuf = (char *) t->sbuf + extent * t->seg_count;
-        t->rbuf = (char *) t->rbuf + extent * t->seg_count;
+        if (NULL != t->rbuf) {
+            t->rbuf = (char *) t->rbuf + extent * t->seg_count;
+        }
         t->cur_seg = t->cur_seg + 1;
         /* Init the t1 task */
         init_task(t1, mca_coll_han_reduce_t1_task, (void *) t);
@@ -157,6 +167,7 @@ mca_coll_han_reduce_intra(const void *sbuf,
     }
 
     free(t);
+    free(tmp_rbuf_to_free);
 
     return OMPI_SUCCESS;
 
@@ -207,7 +218,7 @@ int mca_coll_han_reduce_t1_task(void *task_args) {
                                              t->op, t->root_up_rank, t->up_comm, &ireduce_req,
                                              t->up_comm->c_coll->coll_ireduce_module);
         } else {
-            t->up_comm->c_coll->coll_ireduce((char *) t->rbuf, (char *) t->rbuf, t->seg_count,
+            t->up_comm->c_coll->coll_ireduce((char *) t->rbuf, NULL, t->seg_count,
                                              t->dtype, t->op, t->root_up_rank, t->up_comm,
                                              &ireduce_req, t->up_comm->c_coll->coll_ireduce_module);
         }
@@ -218,7 +229,7 @@ int mca_coll_han_reduce_t1_task(void *task_args) {
             tmp_count = t->last_seg_count;
         }
         t->low_comm->c_coll->coll_reduce((char *) t->sbuf + extent * t->seg_count,
-                                         (char *) t->rbuf + extent * t->seg_count, tmp_count,
+                                         (char *) ((NULL != t->rbuf) ? t->rbuf + extent * t->seg_count : NULL), tmp_count,
                                          t->dtype, t->op, t->root_low_rank, t->low_comm,
                                          t->low_comm->c_coll->coll_reduce_module);
 
