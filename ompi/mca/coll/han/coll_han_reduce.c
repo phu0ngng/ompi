@@ -25,7 +25,7 @@ mca_coll_han_set_reduce_args(mca_coll_han_reduce_args_t * args, mca_coll_task_t 
                              struct ompi_communicator_t *up_comm,
                              struct ompi_communicator_t *low_comm,
                              int num_segments, int cur_seg, int w_rank, int last_seg_count,
-                             bool noop)
+                             bool noop, bool is_tmp_rbuf)
 {
     args->cur_task = cur_task;
     args->sbuf = sbuf;
@@ -42,6 +42,7 @@ mca_coll_han_set_reduce_args(mca_coll_han_reduce_args_t * args, mca_coll_task_t 
     args->w_rank = w_rank;
     args->last_seg_count = last_seg_count;
     args->noop = noop;
+    args->is_tmp_rbuf = is_tmp_rbuf;
 }
 
 /*
@@ -127,7 +128,8 @@ mca_coll_han_reduce_intra(const void *sbuf,
     void *tmp_rbuf = rbuf;
     void *tmp_rbuf_to_free = NULL;
     if (low_rank == root_low_rank && root_up_rank != up_rank) {
-        tmp_rbuf = malloc(dtype_size*count);
+        /* allocate 2 segments on node leaders that are not the global root */
+        tmp_rbuf = malloc(2*extent*seg_count);
         tmp_rbuf_to_free = tmp_rbuf;
     }
 
@@ -138,7 +140,7 @@ mca_coll_han_reduce_intra(const void *sbuf,
     mca_coll_han_set_reduce_args(t, t0, (char *) sbuf, (char *) tmp_rbuf, seg_count, dtype,
                                  op, root_up_rank, root_low_rank, up_comm, low_comm,
                                  num_segments, 0, w_rank, count - (num_segments - 1) * seg_count,
-                                 low_rank != root_low_rank);
+                                 low_rank != root_low_rank, (NULL != tmp_rbuf_to_free));
     /* Init the first task */
     init_task(t0, mca_coll_han_reduce_t0_task, (void *) t);
     issue_task(t0);
@@ -157,7 +159,7 @@ mca_coll_han_reduce_intra(const void *sbuf,
         /* Setup up t1 task arguments */
         t->cur_task = t1;
         t->sbuf = (char *) t->sbuf + extent * t->seg_count;
-        if (NULL != t->rbuf) {
+        if (up_rank == root_up_rank) {
             t->rbuf = (char *) t->rbuf + extent * t->seg_count;
         }
         t->cur_seg = t->cur_seg + 1;
@@ -207,29 +209,43 @@ int mca_coll_han_reduce_t1_task(void *task_args) {
                          t->cur_seg));
     OBJ_RELEASE(t->cur_task);
     ptrdiff_t extent, lb;
+    int cur_seg = t->cur_seg;
     ompi_datatype_get_extent(t->dtype, &lb, &extent);
     ompi_request_t *ireduce_req = NULL;
-    int tmp_count = t->seg_count;
     if (!t->noop) {
+        int tmp_count = t->seg_count;
+        if (cur_seg == t->num_segments - 1 && t->last_seg_count != t->seg_count) {
+            tmp_count = t->last_seg_count;
+        }
         int up_rank = ompi_comm_rank(t->up_comm);
         /* ur of cur_seg */
         if (up_rank == t->root_up_rank) {
-            t->up_comm->c_coll->coll_ireduce(MPI_IN_PLACE, (char *) t->rbuf, t->seg_count, t->dtype,
+            t->up_comm->c_coll->coll_ireduce(MPI_IN_PLACE, (char *) t->rbuf, tmp_count, t->dtype,
                                              t->op, t->root_up_rank, t->up_comm, &ireduce_req,
                                              t->up_comm->c_coll->coll_ireduce_module);
         } else {
-            t->up_comm->c_coll->coll_ireduce((char *) t->rbuf, NULL, t->seg_count,
+            /* this is a node leader that is not root so alternate between the two allocated segments */
+            char *tmp_sbuf = t->rbuf + (cur_seg % 2)*(extent * t->seg_count);
+            t->up_comm->c_coll->coll_ireduce(tmp_sbuf, NULL, tmp_count,
                                              t->dtype, t->op, t->root_up_rank, t->up_comm,
                                              &ireduce_req, t->up_comm->c_coll->coll_ireduce_module);
         }
     }
     /* lr of cur_seg+1 */
-    if (t->cur_seg <= t->num_segments - 2) {
-        if (t->cur_seg == t->num_segments - 2 && t->last_seg_count != t->seg_count) {
+    int next_seg = cur_seg + 1;
+    if (next_seg <= t->num_segments - 1) {
+        int tmp_count = t->seg_count;
+        char *tmp_rbuf = NULL;
+        if (next_seg == t->num_segments - 1 && t->last_seg_count != t->seg_count) {
             tmp_count = t->last_seg_count;
         }
+        if (t->is_tmp_rbuf) {
+            tmp_rbuf = (char*)t->rbuf + (next_seg % 2)*(extent * t->seg_count);
+        } else if (NULL != t->rbuf) {
+            tmp_rbuf = (char*)t->rbuf + extent * t->seg_count;
+        }
         t->low_comm->c_coll->coll_reduce((char *) t->sbuf + extent * t->seg_count,
-                                         (char *) ((NULL != t->rbuf) ? t->rbuf + extent * t->seg_count : NULL), tmp_count,
+                                         (char *) tmp_rbuf, tmp_count,
                                          t->dtype, t->op, t->root_low_rank, t->low_comm,
                                          t->low_comm->c_coll->coll_reduce_module);
 

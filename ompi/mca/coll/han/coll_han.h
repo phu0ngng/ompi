@@ -64,6 +64,7 @@ struct mca_coll_han_reduce_args_s {
     int w_rank;
     int last_seg_count;
     bool noop;
+    bool is_tmp_rbuf;
 };
 typedef struct mca_coll_han_reduce_args_s mca_coll_han_reduce_args_t;
 
@@ -246,7 +247,7 @@ typedef struct mca_coll_han_collectives_fallback_s {
     mca_coll_han_single_collective_fallback_t gather;
     mca_coll_han_single_collective_fallback_t scatter;
 } mca_coll_han_collectives_fallback_t;
-    
+
 /** Coll han module */
 typedef struct mca_coll_han_module_t {
     /** Base module */
