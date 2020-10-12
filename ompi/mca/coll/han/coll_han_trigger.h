@@ -30,9 +30,20 @@ typedef struct mca_coll_task_s mca_coll_task_t;
 OBJ_CLASS_DECLARATION(mca_coll_task_t);
 
 /* Init task */
-int init_task(mca_coll_task_t * t, task_func_ptr func_ptr, void *func_args);
+static inline int
+init_task(mca_coll_task_t * t, task_func_ptr func_ptr, void *func_args)
+{
+    OBJ_CONSTRUCT(t, mca_coll_task_t);
+    t->func_ptr = func_ptr;
+    t->func_args = func_args;
+    return OMPI_SUCCESS;
+}
 
 /* Issue the task */
-int issue_task(mca_coll_task_t * t);
+static inline int
+issue_task(mca_coll_task_t * t)
+{
+    return t->func_ptr(t->func_args);
+}
 
 #endif  /* MCA_COLL_HAN_TRIGGER_EXPORT_H */

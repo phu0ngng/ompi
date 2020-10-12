@@ -178,6 +178,7 @@ int mca_coll_han_bcast_t1_task(void *task_args)
 {
     mca_coll_han_bcast_args_t *t = (mca_coll_han_bcast_args_t *) task_args;
     ompi_request_t *ibcast_req = NULL;
+    int tmp_count = t->seg_count;
     ptrdiff_t extent, lb;
 
     OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d]: in t1 %d\n", t->w_rank,
@@ -186,7 +187,6 @@ int mca_coll_han_bcast_t1_task(void *task_args)
     ompi_datatype_get_extent(t->dtype, &lb, &extent);
     if (!t->noop) {
         if (t->cur_seg <= t->num_segments - 2 ) {
-            int tmp_count = t->seg_count;
             if (t->cur_seg == t->num_segments - 2) {
                 tmp_count = t->last_seg_count;
             }
@@ -197,8 +197,10 @@ int mca_coll_han_bcast_t1_task(void *task_args)
         }
     }
 
+    /* are we the last segment to be pushed downstream ? */
+    tmp_count = (t->cur_seg == (t->num_segments - 1)) ? t->last_seg_count : t->seg_count;
     t->low_comm->c_coll->coll_bcast((char *) t->buff,
-                                    t->seg_count, t->dtype, t->root_low_rank, t->low_comm,
+                                    tmp_count, t->dtype, t->root_low_rank, t->low_comm,
                                     t->low_comm->c_coll->coll_bcast_module);
 
     if (NULL != ibcast_req) {
