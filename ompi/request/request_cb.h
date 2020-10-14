@@ -42,6 +42,7 @@ struct ompi_request_cont_t {
     ompi_request_t *cont_req;         /**< The continuation request this continuation is registered with */
     MPIX_Continue_cb_function *cont_cb; /**< The callback function to invoke */
     void *cont_data;                  /**< Continuation state provided by the user */
+    MPI_Status *cont_status;            /**< user-provided pointers to status objects */
     int32_t num_active;   /**< The number of active operation requests on this callback */
 };
 

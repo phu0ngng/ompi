@@ -97,7 +97,8 @@ void ompi_request_cont_invoke(ompi_request_cont_t *cont)
 
     MPIX_Continue_cb_function *fn = cont->cont_cb;
     void *cont_data = cont->cont_data;
-    fn(cont_data);
+    MPI_Status *statuses = cont->cont_status;
+    fn(statuses, cont_data);
     ompi_request_cont_destroy(cont, cont_req);
 }
 
@@ -184,7 +185,8 @@ ompi_request_cont_t *ompi_request_cont_create(
   int                         count,
   ompi_request_t             *cont_req,
   MPIX_Continue_cb_function  *cont_cb,
-  void                       *cont_data)
+  void                       *cont_data,
+  MPI_Status                 *cont_status)
 {
     ompi_request_cont_t *cont;
     cont = (ompi_request_cont_t *)opal_free_list_get(&request_callback_freelist);
@@ -192,6 +194,7 @@ ompi_request_cont_t *ompi_request_cont_create(
     cont->cont_cb   = cont_cb;
     cont->cont_data = cont_data;
     cont->num_active = count;
+    cont->cont_status = cont_status;
 
     /* signal that the continuation request has a new continuation */
     OBJ_RETAIN(cont_req);
@@ -234,7 +237,7 @@ int ompi_request_cont_register(
     }
     *all_complete = false;
 
-    ompi_request_cont_t *cont = ompi_request_cont_create(count, cont_req, cont_cb, cont_data);
+    ompi_request_cont_t *cont = ompi_request_cont_create(count, cont_req, cont_cb, cont_data, statuses);
 
     opal_atomic_wmb();
 
