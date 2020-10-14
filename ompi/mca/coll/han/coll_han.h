@@ -127,6 +127,7 @@ struct mca_coll_han_gather_args_s {
     int root_low_rank;
     int w_rank;
     bool noop;
+    bool is_mapbycore;
 };
 typedef struct mca_coll_han_gather_args_s mca_coll_han_gather_args_t;
 
