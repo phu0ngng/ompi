@@ -361,7 +361,16 @@ int han_request_free(ompi_request_t ** request);
 /* Subcommunicator creation */
 int mca_coll_han_comm_create(struct ompi_communicator_t *comm, mca_coll_han_module_t * han_module);
 int mca_coll_han_comm_create_new(struct ompi_communicator_t *comm, mca_coll_han_module_t *han_module);
-/* Gather topology information */
+
+/**
+ * Gather topology information
+ *
+ * Returns a pointer to the (potentially already cached) topology.
+ * NOTE: if the rank distribution is imbalanced, no effort will be made to gather
+ *       the topology at all ranks and instead NULL is returned and han_module->is_mapbycore
+ *       is set to false.
+ *       If HAN ever learns to deal with imbalanced topologies, this needs fixing!
+ */
 int *mca_coll_han_topo_init(struct ompi_communicator_t *comm, mca_coll_han_module_t * han_module,
                             int num_topo_level);
 
