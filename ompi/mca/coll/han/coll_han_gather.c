@@ -100,9 +100,9 @@ mca_coll_han_gather_intra(const void *sbuf, int scount,
                                          comm, comm->c_coll->coll_gather_module);
     }
 
-    ompi_datatype_t *dtype = (w_rank == root) ? rdtype : sdtype;
     w_rank = ompi_comm_rank(comm);
     w_size = ompi_comm_size(comm);
+    ompi_datatype_t *dtype = (w_rank == root) ? rdtype : sdtype;
     /* Set up request */
     temp_request = OBJ_NEW(ompi_request_t);
     temp_request->req_state = OMPI_REQUEST_ACTIVE;
