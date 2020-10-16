@@ -158,12 +158,15 @@ mca_coll_han_scatter_intra(const void *sbuf, int scount,
         }
     }
 
+
+    void *dest_buf = (MPI_IN_PLACE == rbuf) ? (void*)sbuf : rbuf;
+
     /* Create us task */
     mca_coll_task_t *us = OBJ_NEW(mca_coll_task_t);
     /* Setup us task arguments */
     mca_coll_han_scatter_args_t *us_args = malloc(sizeof(mca_coll_han_scatter_args_t));
     mca_coll_han_set_scatter_args(us_args, us, reorder_sbuf, NULL, reorder_buf, scount, sdtype,
-                                  (char *) rbuf, rcount, rdtype, root, root_up_rank, root_low_rank,
+                                  (char *) dest_buf, rcount, rdtype, root, root_up_rank, root_low_rank,
                                   up_comm, low_comm, w_rank, low_rank != root_low_rank,
                                   temp_request);
     /* Init us task */
@@ -181,13 +184,24 @@ int mca_coll_han_scatter_us_task(void *task_args)
 {
     mca_coll_han_scatter_args_t *t = (mca_coll_han_scatter_args_t *) task_args;
 
+    void *sbuf = t->sbuf;
+
     if (t->noop) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d] Han Scatter:  us noop\n",
                              t->w_rank));
     } else {
+        size_t count;
+        ompi_datatype_t *dtype;
+        if (t->w_rank == t->root) {
+            dtype = t->sdtype;
+            count = t->scount;
+        } else {
+            dtype = t->rdtype;
+            count = t->rcount;
+        }
         int low_size = ompi_comm_size(t->low_comm);
         ptrdiff_t rsize, rgap = 0;
-        rsize = opal_datatype_span(&t->rdtype->super, (int64_t) t->rcount * low_size, &rgap);
+        rsize = opal_datatype_span(&dtype->super, (int64_t) count * low_size, &rgap);
         char *tmp_buf = (char *) malloc(rsize);
         char *tmp_rbuf = tmp_buf - rgap;
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
@@ -203,6 +217,7 @@ int mca_coll_han_scatter_us_task(void *task_args)
     if (t->sbuf_reorder_free != NULL && t->root == t->w_rank) {
         free(t->sbuf_reorder_free);
         t->sbuf_reorder_free = NULL;
+        t->sbuf = sbuf;
     }
     /* Create ls tasks for the current union segment */
     mca_coll_task_t *ls = t->cur_task;
