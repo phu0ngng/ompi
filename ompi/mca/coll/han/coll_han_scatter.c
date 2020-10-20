@@ -159,14 +159,21 @@ mca_coll_han_scatter_intra(const void *sbuf, int scount,
     }
 
 
-    void *dest_buf = (MPI_IN_PLACE == rbuf) ? (void*)sbuf : rbuf;
+    void *dest_buf = rbuf;
+    int dest_count = rcount;
+    ompi_datatype_t *dest_dtype = rdtype;
+    if (MPI_IN_PLACE == rbuf) {
+        dest_buf = (void*)sbuf;
+        dest_count = scount;
+        dest_dtype = sdtype;
+    }
 
     /* Create us task */
     mca_coll_task_t *us = OBJ_NEW(mca_coll_task_t);
     /* Setup us task arguments */
     mca_coll_han_scatter_args_t *us_args = malloc(sizeof(mca_coll_han_scatter_args_t));
     mca_coll_han_set_scatter_args(us_args, us, reorder_sbuf, NULL, reorder_buf, scount, sdtype,
-                                  (char *) dest_buf, rcount, rdtype, root, root_up_rank, root_low_rank,
+                                  (char *) dest_buf, dest_count, dest_dtype, root, root_up_rank, root_low_rank,
                                   up_comm, low_comm, w_rank, low_rank != root_low_rank,
                                   temp_request);
     /* Init us task */
