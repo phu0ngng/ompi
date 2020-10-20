@@ -184,8 +184,6 @@ int mca_coll_han_scatter_us_task(void *task_args)
 {
     mca_coll_han_scatter_args_t *t = (mca_coll_han_scatter_args_t *) task_args;
 
-    void *sbuf = t->sbuf;
-
     if (t->noop) {
         OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output, "[%d] Han Scatter:  us noop\n",
                              t->w_rank));
@@ -217,7 +215,6 @@ int mca_coll_han_scatter_us_task(void *task_args)
     if (t->sbuf_reorder_free != NULL && t->root == t->w_rank) {
         free(t->sbuf_reorder_free);
         t->sbuf_reorder_free = NULL;
-        t->sbuf = sbuf;
     }
     /* Create ls tasks for the current union segment */
     mca_coll_task_t *ls = t->cur_task;
