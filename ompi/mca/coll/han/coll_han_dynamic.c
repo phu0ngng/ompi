@@ -757,8 +757,13 @@ mca_coll_han_gather_intra_dynamic(const void *sbuf, int scount,
     int rank, verbosity = 0;
 
     /* Compute configuration information for dynamic rules */
-    ompi_datatype_type_size(sdtype, &dtype_size);
-    dtype_size = dtype_size * scount;
+    if( MPI_IN_PLACE != sbuf ) {
+        ompi_datatype_type_size(sdtype, &dtype_size);
+        dtype_size = dtype_size * scount;
+    } else {
+        ompi_datatype_type_size(rdtype, &dtype_size);
+        dtype_size = dtype_size * rcount;
+    }
 
     sub_module = get_module(GATHER,
                             dtype_size,
