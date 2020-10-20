@@ -102,7 +102,10 @@ mca_coll_han_gather_intra(const void *sbuf, int scount,
 
     w_rank = ompi_comm_rank(comm);
     w_size = ompi_comm_size(comm);
-    ompi_datatype_t *dtype = (w_rank == root) ? rdtype : sdtype;
+    if (MPI_IN_PLACE == sbuf) {
+        scount = rcount;
+        sdtype = rdtype;
+    }
     /* Set up request */
     temp_request = OBJ_NEW(ompi_request_t);
     temp_request->req_state = OMPI_REQUEST_ACTIVE;
@@ -146,21 +149,9 @@ mca_coll_han_gather_intra(const void *sbuf, int scount,
             rsize = opal_datatype_span(&rdtype->super,
                                        (int64_t)rcount * w_size,
                                        &rgap);
-            reorder_buf = (char *)malloc(rsize);        //TODO:free
+            reorder_buf = (char *)malloc(rsize);
             /* rgap is the size of unused space at the start of the datatype */
             reorder_rbuf = reorder_buf - rgap;
-
-            if (MPI_IN_PLACE == sbuf) {
-                ptrdiff_t rextent;
-                ompi_datatype_type_extent(rdtype, &rextent);
-                ptrdiff_t block_size = rextent * (ptrdiff_t)rcount;
-                ptrdiff_t src_shift = block_size * w_rank;
-                ptrdiff_t dest_shift = block_size * w_rank;
-                ompi_datatype_copy_content_same_ddt(dtype,
-                                                    (ptrdiff_t)rcount,
-                                                    (char *)rbuf + dest_shift,
-                                                    reorder_rbuf + src_shift);
-            }
         }
     }
 
@@ -410,7 +401,6 @@ mca_coll_han_gather_intra_simple(const void *sbuf, int scount,
             /* rgap is the size of unused space at the start of the datatype */
             reorder_buf_start = reorder_buf - rgap;
         }
-
     }
 
     /* allocate the intermediary buffer
@@ -424,12 +414,24 @@ mca_coll_han_gather_intra_simple(const void *sbuf, int scount,
                                    &rgap);
         tmp_buf = (char *) malloc(rsize);
         tmp_buf_start = tmp_buf - rgap;
+
+        if (MPI_IN_PLACE == sbuf) {
+            ptrdiff_t rextent;
+            ompi_datatype_type_extent(rdtype, &rextent);
+            ptrdiff_t block_size = rextent * (ptrdiff_t)rcount;
+            ptrdiff_t src_shift  = block_size * w_rank;
+            ptrdiff_t dest_shift = block_size * low_rank;
+            ompi_datatype_copy_content_same_ddt(rdtype,
+                                                (ptrdiff_t)rcount,
+                                                tmp_buf + dest_shift,
+                                                (char*)rbuf + src_shift);
+        }
     }
 
     /* 1. low gather on nodes leaders */
     low_comm->c_coll->coll_gather((char *)sbuf,
-                                  count,
-                                  dtype,
+                                  scount,
+                                  sdtype,
                                   tmp_buf_start,
                                   count,
                                   dtype,
