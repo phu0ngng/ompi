@@ -143,7 +143,11 @@ static ompi_spc_event_t ompi_spc_events_names[OMPI_SPC_NUM_COUNTERS] = {
     SET_COUNTER_ARRAY(OMPI_SPC_MAX_UNEXPECTED_IN_QUEUE, "The maximum number of messages that the unexpected message queue(s) within an MPI process "
                                                     "contained at once since the last reset of this counter. Note: This counter is reset each time it is read."),
     SET_COUNTER_ARRAY(OMPI_SPC_MAX_OOS_IN_QUEUE, "The maximum number of messages that the out of sequence message queue(s) within an MPI process "
-                                             "contained at once since the last reset of this counter. Note: This counter is reset each time it is read.")
+                                             "contained at once since the last reset of this counter. Note: This counter is reset each time it is read."),
+    SET_COUNTER_ARRAY(OMPI_SPC_HAN_REDUCE_INTRA, "The time spent on intra-node communication in reduce of the HAN module."),
+    SET_COUNTER_ARRAY(OMPI_SPC_HAN_REDUCE_INTER, "The time spent on inter-node communication in reduce of the HAN module."),
+    SET_COUNTER_ARRAY(OMPI_SPC_HAN_ALLREDUCE_INTRA, "The time spent on intra-node communication in allreduce of the HAN module."),
+    SET_COUNTER_ARRAY(OMPI_SPC_HAN_ALLREDUCE_INTER, "The time spent on inter-node communication in allreduce of the HAN module."),
 };
 
 /* An array of integer values to denote whether an event is activated (1) or not (0) */
@@ -271,7 +275,7 @@ void ompi_spc_events_init(void)
 }
 
 /* Initializes the SPC data structures and registers all counters as MPI_T pvars.
- * Turns on only the counters that were specified in the mpi_spc_attach MCA parameter.  
+ * Turns on only the counters that were specified in the mpi_spc_attach MCA parameter.
  */
 void ompi_spc_init(void)
 {
@@ -331,6 +335,10 @@ void ompi_spc_init(void)
 
     /* If this is a timer event, set the corresponding timer_event entry */
     SET_SPC_BIT(ompi_spc_timer_event, OMPI_SPC_MATCH_TIME);
+    SET_SPC_BIT(ompi_spc_timer_event, OMPI_SPC_HAN_REDUCE_INTRA);
+    SET_SPC_BIT(ompi_spc_timer_event, OMPI_SPC_HAN_REDUCE_INTER);
+    SET_SPC_BIT(ompi_spc_timer_event, OMPI_SPC_HAN_ALLREDUCE_INTRA);
+    SET_SPC_BIT(ompi_spc_timer_event, OMPI_SPC_HAN_ALLREDUCE_INTER);
 
     opal_argv_free(arg_strings);
 }

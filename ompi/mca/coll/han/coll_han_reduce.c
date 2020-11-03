@@ -13,6 +13,7 @@
 #include "coll_han.h"
 #include "ompi/mca/coll/base/coll_base_functions.h"
 #include "ompi/mca/pml/pml.h"
+#include "ompi/runtime/ompi_spc.h"
 #include "coll_han_trigger.h"
 
 static int mca_coll_han_reduce_t0_task(void *task_args);
@@ -244,14 +245,20 @@ int mca_coll_han_reduce_t1_task(void *task_args) {
         } else if (NULL != t->rbuf) {
             tmp_rbuf = (char*)t->rbuf + extent * t->seg_count;
         }
+        opal_timer_t start_ts;
+        SPC_TIMER_START(OMPI_SPC_HAN_REDUCE_INTRA, &start_ts);
         t->low_comm->c_coll->coll_reduce((char *) t->sbuf + extent * t->seg_count,
                                          (char *) tmp_rbuf, tmp_count,
                                          t->dtype, t->op, t->root_low_rank, t->low_comm,
                                          t->low_comm->c_coll->coll_reduce_module);
+        SPC_TIMER_STOP(OMPI_SPC_HAN_REDUCE_INTRA, &start_ts);
 
     }
     if (!t->noop && ireduce_req) {
+        opal_timer_t start_ts;
+        SPC_TIMER_START(OMPI_SPC_HAN_REDUCE_INTER, &start_ts);
         ompi_request_wait(&ireduce_req, MPI_STATUS_IGNORE);
+        SPC_TIMER_STOP(OMPI_SPC_HAN_REDUCE_INTER, &start_ts);
     }
 
     return OMPI_SUCCESS;

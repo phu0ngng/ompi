@@ -160,6 +160,10 @@ typedef enum ompi_spc_counters {
     OMPI_SPC_OOS_IN_QUEUE,
     OMPI_SPC_MAX_UNEXPECTED_IN_QUEUE,
     OMPI_SPC_MAX_OOS_IN_QUEUE,
+    OMPI_SPC_HAN_REDUCE_INTRA,
+    OMPI_SPC_HAN_REDUCE_INTER,
+    OMPI_SPC_HAN_ALLREDUCE_INTRA,
+    OMPI_SPC_HAN_ALLREDUCE_INTER,
     OMPI_SPC_NUM_COUNTERS /* This serves as the number of counters.  It must be last. */
 } ompi_spc_counters_t;
 

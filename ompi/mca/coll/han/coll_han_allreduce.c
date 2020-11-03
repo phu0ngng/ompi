@@ -17,6 +17,7 @@
 #include "ompi/mca/coll/base/coll_tags.h"
 #include "ompi/mca/pml/pml.h"
 #include "coll_han_trigger.h"
+#include "ompi/runtime/ompi_spc.h"
 
 static int mca_coll_han_allreduce_t0_task(void *task_args);
 static int mca_coll_han_allreduce_t1_task(void *task_args);
@@ -204,6 +205,8 @@ int mca_coll_han_allreduce_t0_task(void *task_args)
     OBJ_RELEASE(t->cur_task);
     ptrdiff_t extent, lb;
     ompi_datatype_get_extent(t->dtype, &lb, &extent);
+    opal_timer_t start_ts = 0;
+    SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTRA, &start_ts);
     if (MPI_IN_PLACE == t->sbuf) {
         if (!t->noop) {
             t->low_comm->c_coll->coll_reduce(MPI_IN_PLACE, (char *) t->rbuf, t->seg_count, t->dtype,
@@ -221,6 +224,7 @@ int mca_coll_han_allreduce_t0_task(void *task_args)
                                          t->op, t->root_low_rank, t->low_comm,
                                          t->low_comm->c_coll->coll_reduce_module);
     }
+    SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTRA, &start_ts);
     return OMPI_SUCCESS;
 }
 
@@ -239,6 +243,8 @@ int mca_coll_han_allreduce_t1_task(void *task_args)
     if (!t->noop) {
         int up_rank = ompi_comm_rank(t->up_comm);
         /* ur of cur_seg */
+        opal_timer_t start_ts = 0;
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
         if (up_rank == t->root_up_rank) {
             t->up_comm->c_coll->coll_ireduce(MPI_IN_PLACE, (char *) t->rbuf, t->seg_count, t->dtype,
                                              t->op, t->root_up_rank, t->up_comm, &ireduce_req,
@@ -248,20 +254,27 @@ int mca_coll_han_allreduce_t1_task(void *task_args)
                                              t->dtype, t->op, t->root_up_rank, t->up_comm,
                                              &ireduce_req, t->up_comm->c_coll->coll_ireduce_module);
         }
+        SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
     }
     /* lr of cur_seg+1 */
     if (t->cur_seg <= t->num_segments - 2) {
         if (t->cur_seg == t->num_segments - 2 && t->last_seg_count != t->seg_count) {
             tmp_count = t->last_seg_count;
         }
+        opal_timer_t start_ts = 0;
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTRA, &start_ts);
         t->low_comm->c_coll->coll_reduce((char *) t->sbuf + extent * t->seg_count,
                                          (char *) t->rbuf + extent * t->seg_count, tmp_count,
                                          t->dtype, t->op, t->root_low_rank, t->low_comm,
                                          t->low_comm->c_coll->coll_reduce_module);
-
+        SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTRA, &start_ts);
     }
+
     if (!t->noop) {
+        opal_timer_t start_ts = 0;
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
         ompi_request_wait(&ireduce_req, MPI_STATUS_IGNORE);
+        SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
     }
 
     return OMPI_SUCCESS;
@@ -283,6 +296,8 @@ int mca_coll_han_allreduce_t2_task(void *task_args)
     if (!t->noop) {
         int up_rank = ompi_comm_rank(t->up_comm);
         /* ub of cur_seg */
+        opal_timer_t start_ts = 0;
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
         t->up_comm->c_coll->coll_ibcast((char *) t->rbuf, t->seg_count, t->dtype, t->root_up_rank,
                                         t->up_comm, &(reqs[0]),
                                         t->up_comm->c_coll->coll_ibcast_module);
@@ -307,19 +322,26 @@ int mca_coll_han_allreduce_t2_task(void *task_args)
             }
             req_count++;
         }
+        SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
     }
     /* lr of cur_seg+2 */
     if (t->cur_seg <= t->num_segments - 3) {
         if (t->cur_seg == t->num_segments - 3 && t->last_seg_count != t->seg_count) {
             tmp_count = t->last_seg_count;
         }
+        opal_timer_t start_ts = 0;
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTRA, &start_ts);
         t->low_comm->c_coll->coll_reduce((char *) t->sbuf + 2 * extent * t->seg_count,
                                          (char *) t->rbuf + 2 * extent * t->seg_count, tmp_count,
                                          t->dtype, t->op, t->root_low_rank, t->low_comm,
                                          t->low_comm->c_coll->coll_reduce_module);
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTRA, &start_ts);
     }
     if (!t->noop && req_count > 0) {
+        opal_timer_t start_ts = 0;
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
         ompi_request_wait_all(req_count, reqs, MPI_STATUSES_IGNORE);
+        SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
     }
 
 
@@ -341,6 +363,8 @@ int mca_coll_han_allreduce_t3_task(void *task_args)
     int tmp_count = t->seg_count;
     if (!t->noop) {
         int up_rank = ompi_comm_rank(t->up_comm);
+        opal_timer_t start_ts = 0;
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
         /* ub of cur_seg+1 */
         if (t->cur_seg <= t->num_segments - 2) {
             if (t->cur_seg == t->num_segments - 2 && t->last_seg_count != t->seg_count) {
@@ -371,8 +395,11 @@ int mca_coll_han_allreduce_t3_task(void *task_args)
             }
             req_count++;
         }
+        SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
     }
     /* lr of cur_seg+3 */
+    opal_timer_t start_ts = 0;
+    SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTRA, &start_ts);
     if (t->cur_seg <= t->num_segments - 4) {
         if (t->cur_seg == t->num_segments - 4 && t->last_seg_count != t->seg_count) {
             tmp_count = t->last_seg_count;
@@ -385,8 +412,12 @@ int mca_coll_han_allreduce_t3_task(void *task_args)
     /* lb of cur_seg */
     t->low_comm->c_coll->coll_bcast((char *) t->rbuf, t->seg_count, t->dtype, t->root_low_rank,
                                     t->low_comm, t->low_comm->c_coll->coll_bcast_module);
+    SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTRA, &start_ts);
     if (!t->noop && req_count > 0) {
+        opal_timer_t start_ts = 0;
+        SPC_TIMER_START(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
         ompi_request_wait_all(req_count, reqs, MPI_STATUSES_IGNORE);
+        SPC_TIMER_STOP(OMPI_SPC_HAN_ALLREDUCE_INTER, &start_ts);
     }
 
     t->completed[0]++;
