@@ -201,6 +201,9 @@ typedef struct mca_coll_han_component_t {
     uint32_t han_reproducible;
     bool use_simple_algorithm[COLLCOUNT];
 
+    /* whether to use callback-based algorithms */
+    bool use_cb_algorithm[COLLCOUNT];
+
     /* Dynamic configuration rules */
     bool use_dynamic_file_rules;
     bool dump_dynamic_rules;
@@ -485,6 +488,14 @@ int mca_coll_han_allreduce_intra(const void *sbuf,
                                  struct ompi_datatype_t *dtype,
                                  struct ompi_op_t *op,
                                  struct ompi_communicator_t *comm, mca_coll_base_module_t * module);
+
+int
+mca_coll_han_allreduce_intra_cb(const void *sbuf,
+                                void *rbuf,
+                                int count,
+                                struct ompi_datatype_t *dtype,
+                                struct ompi_op_t *op,
+                                struct ompi_communicator_t *comm, mca_coll_base_module_t * module);
 
 /* Scatter */
 int

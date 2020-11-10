@@ -608,9 +608,13 @@ mca_coll_han_allreduce_intra_dynamic(const void *sbuf,
              * sub_module->coll_allreduce is valid and point to this function
              * Call han topological collective algorithm
              */
-            if(mca_coll_han_component.use_simple_algorithm[ALLREDUCE]) {
+            if (mca_coll_han_component.use_cb_algorithm[ALLREDUCE]) {
+                allreduce = mca_coll_han_allreduce_intra_cb;
+            }
+            else if(mca_coll_han_component.use_simple_algorithm[ALLREDUCE]) {
                 allreduce = mca_coll_han_allreduce_intra_simple;
-            } else {
+            }
+            else {
                 allreduce = mca_coll_han_allreduce_intra;
             }
         }
