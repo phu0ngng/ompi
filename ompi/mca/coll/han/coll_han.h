@@ -262,6 +262,8 @@ typedef struct mca_coll_han_module_t {
 
     struct ompi_communicator_t **cached_low_comms;
     struct ompi_communicator_t **cached_up_comms;
+    /* needed for callback-based allgather and only initialized there */
+    struct ompi_communicator_t **cached_up_comms_dup;
     int *cached_vranks;
     int *cached_topo;
     bool is_mapbycore;
