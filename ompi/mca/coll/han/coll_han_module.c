@@ -58,6 +58,7 @@ static void mca_coll_han_module_construct(mca_coll_han_module_t * module)
     module->super.coll_module_disable = mca_coll_han_module_disable;
     module->cached_low_comms = NULL;
     module->cached_up_comms = NULL;
+    module->cached_up_comms_dup = NULL;
     module->cached_vranks = NULL;
     module->cached_topo = NULL;
     module->is_mapbycore = false;
@@ -106,6 +107,14 @@ mca_coll_han_module_destruct(mca_coll_han_module_t * module)
         }
         free(module->cached_up_comms);
         module->cached_up_comms = NULL;
+    }
+    if (module->cached_up_comms_dup != NULL) {
+        for (i = 0; i < COLL_HAN_UP_MODULES; i++) {
+            ompi_comm_free(&(module->cached_up_comms_dup[i]));
+            module->cached_up_comms_dup[i] = NULL;
+        }
+        free(module->cached_up_comms_dup);
+        module->cached_up_comms_dup = NULL;
     }
     if (module->cached_vranks != NULL) {
         free(module->cached_vranks);

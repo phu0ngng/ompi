@@ -189,6 +189,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     mca_coll_han_collectives_fallback_t fallbacks;
     ompi_communicator_t **low_comms;
     ompi_communicator_t **up_comms;
+    ompi_communicator_t **up_comms_dup;
     int vrank, *vranks;
     opal_info_t comm_info;
 
@@ -251,6 +252,8 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
                                                       sizeof(struct ompi_communicator_t *));
     up_comms = (struct ompi_communicator_t **)malloc(COLL_HAN_UP_MODULES *
                                                      sizeof(struct ompi_communicator_t *));
+    up_comms_dup = (struct ompi_communicator_t **)malloc(COLL_HAN_UP_MODULES *
+                                                     sizeof(struct ompi_communicator_t *));
 
     OBJ_CONSTRUCT(&comm_info, opal_info_t);
 
@@ -283,6 +286,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      */
     opal_info_set(&comm_info, "ompi_comm_coll_preference", "libnbc,^han");
     ompi_comm_split_with_info(comm, low_rank, w_rank, &comm_info, &(up_comms[0]), false);
+    ompi_comm_dup_with_info(up_comms[0], &comm_info, &up_comms_dup[0]);
 
     up_rank = ompi_comm_rank(up_comms[0]);
 
@@ -292,6 +296,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      */
     opal_info_set(&comm_info, "ompi_comm_coll_preference", "adapt,^han");
     ompi_comm_split_with_info(comm, low_rank, w_rank, &comm_info, &(up_comms[1]), false);
+    ompi_comm_dup_with_info(up_comms[1], &comm_info, &up_comms_dup[1]);
 
     /*
      * Set my virtual rank number.
@@ -315,6 +320,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      */
     han_module->cached_low_comms = low_comms;
     han_module->cached_up_comms = up_comms;
+    han_module->cached_up_comms_dup = up_comms_dup;
     han_module->cached_vranks = vranks;
 
     /* Reset the saved collectives to point back to HAN */

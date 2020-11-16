@@ -605,10 +605,6 @@ mca_coll_han_allreduce_intra_cb(const void *sbuf,
                                 seg_count);
 
     up_comm_dup = han_module->cached_up_comms_dup[mca_coll_han_component.han_allreduce_up_module];
-    if (NULL == up_comm_dup) {
-        ompi_comm_dup(up_comm, &up_comm_dup);
-        han_module->cached_up_comms_dup[mca_coll_han_component.han_allreduce_up_module] = up_comm_dup;
-    }
 
     /* Determine number of elements sent per task. */
     OPAL_OUTPUT_VERBOSE((10, mca_coll_han_component.han_output,
