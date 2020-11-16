@@ -674,10 +674,10 @@ mca_coll_han_allreduce_intra_cb(const void *sbuf,
                                              up_comm->c_coll->coll_iallreduce_module);
             ompi_request_set_callback(request, &up_iallreduce_complete_cb, t);
 #endif
-            up_comm->c_coll->coll_ireduce(MPI_IN_PLACE, rbuf_seg,
+            up_comm_dup->c_coll->coll_ireduce(MPI_IN_PLACE, rbuf_seg,
                                           tmp_count, t->dtype, t->op, root_up_rank,
-                                          up_comm, &request,
-                                          up_comm->c_coll->coll_ireduce_module);
+                                          up_comm_dup, &request,
+                                          up_comm_dup->c_coll->coll_ireduce_module);
             ompi_request_set_callback(request, &up_ireduce_complete_cb, t);
 
         } else {
