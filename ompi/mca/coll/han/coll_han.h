@@ -69,6 +69,7 @@ struct mca_coll_han_reduce_args_s {
 typedef struct mca_coll_han_reduce_args_s mca_coll_han_reduce_args_t;
 
 struct mca_coll_han_allreduce_args_s {
+    opal_object_t super;
     mca_coll_task_t *cur_task;
     ompi_communicator_t *up_comm;
     ompi_communicator_t *low_comm;
@@ -88,6 +89,8 @@ struct mca_coll_han_allreduce_args_s {
     int *completed;
 };
 typedef struct mca_coll_han_allreduce_args_s mca_coll_han_allreduce_args_t;
+
+OBJ_CLASS_DECLARATION(mca_coll_han_allreduce_args_t);
 
 struct mca_coll_han_scatter_args_s {
     mca_coll_task_t *cur_task;

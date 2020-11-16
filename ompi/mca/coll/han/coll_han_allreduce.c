@@ -24,6 +24,12 @@ static int mca_coll_han_allreduce_t1_task(void *task_args);
 static int mca_coll_han_allreduce_t2_task(void *task_args);
 static int mca_coll_han_allreduce_t3_task(void *task_args);
 
+
+static void han_allreduce_args_dtor(mca_coll_han_allreduce_args_t *t);
+
+OBJ_CLASS_INSTANCE(mca_coll_han_allreduce_args_t, opal_object_t,
+                   NULL, han_allreduce_args_dtor);
+
 /* Only work with regular situation (each node has equal number of processes) */
 
 static inline void
@@ -428,23 +434,30 @@ int mca_coll_han_allreduce_t3_task(void *task_args)
     return OMPI_SUCCESS;
 }
 
-static
-int low_ibcast_complete_cb(ompi_request_t *request)
+static void han_allreduce_args_dtor(mca_coll_han_allreduce_args_t *t)
 {
-    mca_coll_han_allreduce_args_t *t = (mca_coll_han_allreduce_args_t *)request->req_complete_cb_data;
-
     /* signal completion */
     int complete = OPAL_THREAD_ADD_FETCH64((opal_atomic_int64_t*)t->completed, -1);
+
+    OPAL_OUTPUT_VERBOSE((10, mca_coll_han_component.han_output,
+                         "In HAN Allreduce segment %d dtor with complete %d\n",
+                         t->cur_seg, complete));
 
     if (0 == complete) {
         /* all operations have completed so signal completion */
         ompi_request_complete(t->req, true);
     }
+}
+
+static
+int low_ibcast_complete_cb(ompi_request_t *request)
+{
+    mca_coll_han_allreduce_args_t *t = (mca_coll_han_allreduce_args_t *)request->req_complete_cb_data;
 
     /* free the request */
     request->req_free(&request);
 
-    free(t);
+    OBJ_RELEASE(t);
 
     /* returning 1 signals that we free'd the request ourselves */
     return 1;
@@ -468,8 +481,11 @@ int up_ibcast_complete_cb(ompi_request_t *request)
         t->low_comm->c_coll->coll_ibcast((char *) t->rbuf, t->seg_count, t->dtype, t->root_low_rank,
                                         t->low_comm, &request, t->low_comm->c_coll->coll_ibcast_module);
 
+        OBJ_RETAIN(t);
         ompi_request_set_callback(request, &low_ibcast_complete_cb, t);
     }
+
+    OBJ_RELEASE(t);
 
     /* returning 1 signals that we free'd the request ourselves */
     return 1;
@@ -490,6 +506,7 @@ int up_ireduce_complete_cb(ompi_request_t *request)
     t->up_comm->c_coll->coll_ibcast(t->rbuf, t->seg_count, t->dtype, t->root_up_rank,
                                     t->up_comm, &up_request, t->up_comm->c_coll->coll_ibcast_module);
 
+    OBJ_RETAIN(t);
     ompi_request_set_callback(up_request, &up_ibcast_complete_cb, t);
 
     if (ompi_comm_rank(t->up_comm) == t->root_up_rank) {
@@ -498,8 +515,11 @@ int up_ireduce_complete_cb(ompi_request_t *request)
         t->low_comm->c_coll->coll_ibcast(t->rbuf, t->seg_count, t->dtype, t->root_low_rank,
                                          t->low_comm, &low_request, t->low_comm->c_coll->coll_ibcast_module);
 
+        OBJ_RETAIN(t);
         ompi_request_set_callback(low_request, &low_ibcast_complete_cb, t);
     }
+
+    OBJ_RELEASE(t);
 
     /* returning 1 signals that we free'd the request ourselves */
     return 1;
@@ -600,6 +620,7 @@ mca_coll_han_allreduce_intra_cb(const void *sbuf,
     int low_rank = ompi_comm_rank(low_comm);
     int root_up_rank = 0;
     int root_low_rank = 0;
+
     int completed = num_segments;
 
     ompi_request_t *complete_req = OBJ_NEW(ompi_request_t);
@@ -638,7 +659,7 @@ mca_coll_han_allreduce_intra_cb(const void *sbuf,
                                           low_comm->c_coll->coll_reduce_module);
         }
 
-        mca_coll_han_allreduce_args_t *t = malloc(sizeof(mca_coll_han_allreduce_args_t));
+        mca_coll_han_allreduce_args_t *t = OBJ_NEW(mca_coll_han_allreduce_args_t);
         mca_coll_han_set_allreduce_args(t, NULL /* ignored */, sbuf_seg, rbuf_seg, tmp_count, dtype, op,
                                         root_up_rank, root_low_rank, up_comm, low_comm, num_segments, cur_seg,
                                         w_rank, -1 /* ignored */,
