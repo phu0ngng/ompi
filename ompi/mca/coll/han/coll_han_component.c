@@ -281,6 +281,15 @@ static int han_register(void)
                                            MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
                                            OPAL_INFO_LVL_3,
                                            MCA_BASE_VAR_SCOPE_READONLY, &cs->han_reproducible);
+
+    cs->han_comm_split_level = 0;
+    (void) mca_base_component_var_register(c, "comm_split_level",
+                                           "which hardware level to split on"
+                                           "0 shared memory, 1 socket, 2 NUMA, default 0",
+                                           MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
+                                           OPAL_INFO_LVL_3,
+                                           MCA_BASE_VAR_SCOPE_READONLY, &cs->han_comm_split_level);
+
     /* Simple algorithms MCA parameters */
     for(coll = 0 ; coll < COLLCOUNT ; coll++) {
         cs->use_simple_algorithm[coll] = false;

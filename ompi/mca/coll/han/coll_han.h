@@ -202,6 +202,8 @@ typedef struct mca_coll_han_component_t {
      * (but disables topological optimisations)
      */
     uint32_t han_reproducible;
+    /* the level to split for shared memory (node, socket, NUMA) */
+    uint32_t han_comm_split_level;
     bool use_simple_algorithm[COLLCOUNT];
 
     /* whether to use callback-based algorithms */

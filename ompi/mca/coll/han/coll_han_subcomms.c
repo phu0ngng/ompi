@@ -192,6 +192,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     ompi_communicator_t **up_comms_dup;
     int vrank, *vranks;
     opal_info_t comm_info;
+    int split_level;
 
     /* use cached communicators if possible */
     if (han_module->enabled && han_module->cached_low_comms != NULL &&
@@ -255,6 +256,18 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     up_comms_dup = (struct ompi_communicator_t **)malloc(COLL_HAN_UP_MODULES *
                                                      sizeof(struct ompi_communicator_t *));
 
+    switch(mca_coll_han_component.han_comm_split_level) {
+        case 0:
+            split_level = MPI_COMM_TYPE_SHARED; break;
+        case 1:
+            split_level = OMPI_COMM_TYPE_SOCKET; break;
+        case 2:
+            split_level = OMPI_COMM_TYPE_NUMA; break;
+        default:
+            split_level = MPI_COMM_TYPE_SHARED;
+    }
+
+
     OBJ_CONSTRUCT(&comm_info, opal_info_t);
 
     /*
@@ -262,7 +275,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      * This sub-communicator contains the ranks that share my node.
      */
     opal_info_set(&comm_info, "ompi_comm_coll_preference", "sm,^han");
-    ompi_comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0,
+    ompi_comm_split_type(comm, split_level, 0,
                          &comm_info, &(low_comms[0]));
 
     /*
@@ -276,7 +289,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      * This sub-communicator contains the ranks that share my node.
      */
     opal_info_set(&comm_info, "ompi_comm_coll_preference", "shared,^han");
-    ompi_comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0,
+    ompi_comm_split_type(comm, split_level, 0,
                          &comm_info, &(low_comms[1]));
 
     /*
