@@ -189,6 +189,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     mca_coll_han_collectives_fallback_t fallbacks;
     ompi_communicator_t **low_comms;
     ompi_communicator_t **up_comms;
+    ompi_communicator_t **low_comms_dup;
     ompi_communicator_t **up_comms_dup;
     int vrank, *vranks;
     opal_info_t comm_info;
@@ -253,6 +254,8 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
                                                       sizeof(struct ompi_communicator_t *));
     up_comms = (struct ompi_communicator_t **)malloc(COLL_HAN_UP_MODULES *
                                                      sizeof(struct ompi_communicator_t *));
+    low_comms_dup = (struct ompi_communicator_t **)malloc(COLL_HAN_LOW_MODULES *
+                                                     sizeof(struct ompi_communicator_t *));
     up_comms_dup = (struct ompi_communicator_t **)malloc(COLL_HAN_UP_MODULES *
                                                      sizeof(struct ompi_communicator_t *));
 
@@ -277,6 +280,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     opal_info_set(&comm_info, "ompi_comm_coll_preference", "sm,^han");
     ompi_comm_split_type(comm, split_level, 0,
                          &comm_info, &(low_comms[0]));
+    ompi_comm_dup_with_info((low_comms[0]), &comm_info, &(low_comms_dup[0]));
 
     /*
      * Get my local rank and the local size
@@ -291,6 +295,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
     opal_info_set(&comm_info, "ompi_comm_coll_preference", "shared,^han");
     ompi_comm_split_type(comm, split_level, 0,
                          &comm_info, &(low_comms[1]));
+    ompi_comm_dup_with_info((low_comms[1]), &comm_info, &(low_comms_dup[1]));
 
     /*
      * Upgrade libnbc module priority to set up up_comms[0] with libnbc module
@@ -333,6 +338,7 @@ int mca_coll_han_comm_create(struct ompi_communicator_t *comm,
      */
     han_module->cached_low_comms = low_comms;
     han_module->cached_up_comms = up_comms;
+    han_module->cached_low_comms_dup = low_comms_dup;
     han_module->cached_up_comms_dup = up_comms_dup;
     han_module->cached_vranks = vranks;
 

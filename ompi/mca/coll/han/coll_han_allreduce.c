@@ -696,6 +696,370 @@ mca_coll_han_allreduce_intra_cb(const void *sbuf,
                                           comm, han_module->previous_allreduce_module);
 }
 
+/*** Allreduce using multi-leaders ***/
+
+struct mca_coll_han_allreduce_ml_args_s {
+    opal_object_t super;
+    ompi_communicator_t *up_comm;
+    ompi_communicator_t *up_comm_dup;
+    ompi_communicator_t *low_comm;
+    ompi_communicator_t *low_comm_dup;
+    ompi_request_t *req;
+    void *sbuf;
+    void *sbuf_seg;
+    void *rbuf;
+    void *rbuf_seg;
+    ompi_op_t *op;
+    ompi_datatype_t *dtype;
+    int *completed;
+    int seg_count;
+    int cur_seg_count;
+    int root_up_rank;
+    int root_low_rank;
+    int num_segments;
+    int cur_seg;
+    int w_rank;
+    int last_seg_count;
+    int num_par_segs;
+};
+typedef struct mca_coll_han_allreduce_ml_args_s mca_coll_han_allreduce_ml_args_t;
+
+static inline void
+mca_coll_han_set_allreduce_ml_args(mca_coll_han_allreduce_ml_args_t * args,
+                                void *sbuf,
+                                void *rbuf,
+                                int seg_count,
+                                struct ompi_datatype_t *dtype,
+                                struct ompi_op_t *op,
+                                int root_up_rank,
+                                int root_low_rank,
+                                struct ompi_communicator_t *up_comm,
+                                struct ompi_communicator_t *up_comm_dup,
+                                struct ompi_communicator_t *low_comm,
+                                struct ompi_communicator_t *low_comm_dup,
+                                int num_segments,
+                                int num_par_segs,
+                                int cur_seg,
+                                int w_rank,
+                                int last_seg_count,
+                                ompi_request_t * req, int *completed)
+{
+    args->sbuf = sbuf;
+    args->rbuf = rbuf;
+    args->seg_count = seg_count;
+    args->dtype = dtype;
+    args->op = op;
+    args->root_up_rank = root_up_rank;
+    args->root_low_rank = root_low_rank;
+    args->up_comm = up_comm;
+    args->low_comm = low_comm;
+    args->up_comm_dup = up_comm_dup;
+    args->low_comm_dup = low_comm_dup;
+    args->num_segments = num_segments;
+    args->cur_seg = cur_seg;
+    args->w_rank = w_rank;
+    args->last_seg_count = last_seg_count;
+    args->req = req;
+    args->completed = completed;
+    args->num_par_segs = num_par_segs;
+}
+
+
+static void
+han_allreduce_ml_args_dtor(mca_coll_han_allreduce_ml_args_t *t)
+{
+    /* signal completion */
+    int complete = OPAL_THREAD_ADD_FETCH64((opal_atomic_int64_t*)t->completed, -1);
+
+    OPAL_OUTPUT_VERBOSE((10, mca_coll_han_component.han_output,
+                         "In HAN Allreduce segment %d dtor with complete %d\n",
+                         t->cur_seg, complete));
+
+    if (0 == complete) {
+        /* all operations have completed so signal completion */
+        ompi_request_complete(t->req, true);
+    }
+}
+
+
+OBJ_CLASS_DECLARATION(mca_coll_han_allreduce_ml_args_t);
+
+OBJ_CLASS_INSTANCE(mca_coll_han_allreduce_ml_args_t, opal_object_t,
+                   NULL, han_allreduce_ml_args_dtor);
+
+
+static
+int low_ibcast_ml_complete_cb(ompi_request_t *request)
+{
+    mca_coll_han_allreduce_ml_args_t *t = (mca_coll_han_allreduce_ml_args_t *)request->req_complete_cb_data;
+
+    /* free the request */
+    request->req_free(&request);
+
+    OBJ_RELEASE(t);
+
+    /* returning 1 signals that we free'd the request ourselves */
+    return 1;
+}
+
+
+static
+int up_ibcast_ml_complete_cb(ompi_request_t *request)
+{
+    mca_coll_han_allreduce_ml_args_t *t = (mca_coll_han_allreduce_ml_args_t *)request->req_complete_cb_data;
+
+    /* free the request */
+    request->req_free(&request);
+
+    OPAL_OUTPUT_VERBOSE((10, mca_coll_han_component.han_output,
+                         "In HAN Allreduce completed up_ibcast for segment %d\n",
+                         t->cur_seg));
+
+    /* the up_comm root has initialized the low_comm bcast together with the up_comm bcast already */
+    if (ompi_comm_rank(t->up_comm) != t->root_up_rank) {
+        ompi_request_t *request;
+        t->low_comm_dup->c_coll->coll_ibcast((char *) t->rbuf_seg, t->cur_seg_count, t->dtype, t->root_low_rank,
+                                        t->low_comm_dup, &request, t->low_comm_dup->c_coll->coll_ibcast_module);
+
+        OBJ_RETAIN(t);
+        ompi_request_set_callback(request, &low_ibcast_ml_complete_cb, t);
+    }
+
+    OBJ_RELEASE(t);
+
+    /* returning 1 signals that we free'd the request ourselves */
+    return 1;
+}
+
+
+static
+int up_ireduce_ml_complete_cb(ompi_request_t *request)
+{
+    mca_coll_han_allreduce_ml_args_t *t = (mca_coll_han_allreduce_ml_args_t *)request->req_complete_cb_data;
+    request->req_free(&request);
+
+    OPAL_OUTPUT_VERBOSE((10, mca_coll_han_component.han_output,
+                         "In HAN Allreduce completed up_ireduce for segment %d\n",
+                         t->cur_seg));
+
+    ompi_request_t *up_request;
+    t->up_comm_dup->c_coll->coll_ibcast(t->rbuf_seg, t->cur_seg_count, t->dtype, t->root_up_rank,
+                                    t->up_comm_dup, &up_request, t->up_comm_dup->c_coll->coll_ibcast_module);
+
+    OBJ_RETAIN(t);
+    ompi_request_set_callback(up_request, &up_ibcast_ml_complete_cb, t);
+
+    if (ompi_comm_rank(t->up_comm) == t->root_up_rank) {
+        /* on the up root node, initialize the bcast on the node immediately */
+        ompi_request_t *low_request;
+        t->low_comm_dup->c_coll->coll_ibcast(t->rbuf_seg, t->cur_seg_count, t->dtype, t->root_low_rank,
+                                         t->low_comm_dup, &low_request, t->low_comm_dup->c_coll->coll_ibcast_module);
+
+        OBJ_RETAIN(t);
+        ompi_request_set_callback(low_request, &low_ibcast_ml_complete_cb, t);
+    }
+
+    OBJ_RELEASE(t);
+
+    /* returning 1 signals that we free'd the request ourselves */
+    return 1;
+}
+
+
+static void
+han_allreduce_start_segment(mca_coll_han_allreduce_ml_args_t *t);
+
+static int low_ireduce_ml_complete_cb(ompi_request_t *request)
+{
+    mca_coll_han_allreduce_ml_args_t *t = (mca_coll_han_allreduce_ml_args_t *)request->req_complete_cb_data;
+    request->req_free(&request);
+
+    ompi_communicator_t *up_comm = t->up_comm;
+    ompi_communicator_t *low_comm = t->low_comm;
+    int low_rank = ompi_comm_rank(low_comm);
+    int up_rank = ompi_comm_rank(up_comm);
+    int root_low_rank = t->root_low_rank;
+    int root_up_rank = t->root_up_rank;
+
+    if (t->cur_seg + t->num_par_segs < t->num_segments) {
+        /* kick off another segment */
+        mca_coll_han_allreduce_ml_args_t *t_next = OBJ_NEW(mca_coll_han_allreduce_ml_args_t);
+        memcpy(t_next, t, sizeof(*t));
+        t_next->cur_seg = t->cur_seg + t->num_par_segs;
+        han_allreduce_start_segment(t_next);
+    }
+
+    if (low_rank == root_low_rank) {
+        /* non-blocking inter-node allreduce */
+        ompi_request_t *request;
+        up_comm->c_coll->coll_ireduce((up_rank == root_up_rank) ? MPI_IN_PLACE : t->rbuf_seg,
+                                          t->rbuf_seg, t->cur_seg_count, t->dtype, t->op, root_up_rank,
+                                          up_comm, &request, up_comm->c_coll->coll_ireduce_module);
+        ompi_request_set_callback(request, &up_ireduce_ml_complete_cb, t);
+
+    } else {
+        ompi_request_t *request;
+        /* on non-low-root ranks go directly to the non-blocking inra-node bcast */
+        t->low_comm_dup->c_coll->coll_ibcast((char *) t->rbuf_seg, t->cur_seg_count, t->dtype, root_low_rank,
+                                      t->low_comm_dup, &request, t->low_comm_dup->c_coll->coll_ibcast_module);
+
+        ompi_request_set_callback(request, &low_ibcast_ml_complete_cb, t);
+    }
+
+    return 1;
+}
+
+static void
+han_allreduce_start_segment(mca_coll_han_allreduce_ml_args_t *t)
+{
+    ompi_request_t *request;
+    ompi_communicator_t *low_comm = t->low_comm;
+    int low_rank = ompi_comm_rank(low_comm);
+    int root_low_rank = t->root_low_rank;
+
+    ptrdiff_t extent, lb;
+    ompi_datatype_get_extent(t->dtype, &lb, &extent);
+
+    void *sbuf_seg = (MPI_IN_PLACE == t->sbuf) ? MPI_IN_PLACE : ((char*)t->sbuf) + extent*t->cur_seg;
+    void *rbuf_seg = ((char*)t->rbuf) + extent*t->cur_seg;
+    int cur_seg_count = t->seg_count;
+    if (t->cur_seg == t->num_segments-1 && t->last_seg_count != t->seg_count) {
+        cur_seg_count = t->last_seg_count;
+    }
+
+    /* seg segment specific values */
+    t->cur_seg_count = cur_seg_count;
+    t->sbuf_seg = sbuf_seg;
+    t->rbuf_seg = rbuf_seg;
+
+    /* Blocking intra-node reduce */
+    if (MPI_IN_PLACE == t->sbuf) {
+        if (low_rank == root_low_rank) {
+            low_comm->c_coll->coll_ireduce(MPI_IN_PLACE, (char *) rbuf_seg, cur_seg_count, t->dtype,
+                                          t->op, root_low_rank, low_comm, &request,
+                                          low_comm->c_coll->coll_reduce_module);
+        }
+        else {
+            low_comm->c_coll->coll_ireduce((char *) rbuf_seg, NULL, cur_seg_count, t->dtype,
+                                          t->op, root_low_rank, low_comm, &request,
+                                          low_comm->c_coll->coll_reduce_module);
+        }
+    }
+    else {
+        low_comm->c_coll->coll_ireduce((char *) sbuf_seg, (char *) rbuf_seg, cur_seg_count, t->dtype,
+                                      t->op, root_low_rank, low_comm, &request,
+                                      low_comm->c_coll->coll_reduce_module);
+    }
+
+    ompi_request_set_callback(request, &low_ireduce_ml_complete_cb, t);
+}
+
+int
+mca_coll_han_allreduce_intra_ml(const void *sbuf,
+                                void *rbuf,
+                                int count,
+                                struct ompi_datatype_t *dtype,
+                                struct ompi_op_t *op,
+                                struct ompi_communicator_t *comm, mca_coll_base_module_t * module)
+{
+    mca_coll_han_module_t *han_module = (mca_coll_han_module_t *)module;
+
+    /* No support for non-commutative operations */
+    if(!ompi_op_is_commute(op)) {
+        OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
+                             "han cannot handle allreduce with this operation. Fall back on another component\n"));
+        goto prev_allreduce_intra;
+    }
+
+    /* Create the subcommunicators */
+    if( OMPI_SUCCESS != mca_coll_han_comm_create(comm, han_module) ) {
+        OPAL_OUTPUT_VERBOSE((30, mca_coll_han_component.han_output,
+                             "han cannot handle allreduce with this communicator. Drop HAN support in this communicator and fall back on another component\n"));
+        /* HAN cannot work with this communicator so fallback on all collectives */
+        HAN_LOAD_FALLBACK_COLLECTIVES(han_module, comm);
+        return comm->c_coll->coll_allreduce(sbuf, rbuf, count, dtype, op,
+                                            comm, comm->c_coll->coll_reduce_module);
+    }
+
+    ptrdiff_t extent, lb;
+    size_t dtype_size;
+    ompi_datatype_get_extent(dtype, &lb, &extent);
+    int seg_count = count, w_rank;
+    w_rank = ompi_comm_rank(comm);
+    ompi_datatype_type_size(dtype, &dtype_size);
+
+    ompi_communicator_t *low_comm;
+    ompi_communicator_t *up_comm;
+    ompi_communicator_t *low_comm_dup;
+    ompi_communicator_t *up_comm_dup;
+
+    /* use MCA parameters for now */
+    low_comm = han_module->cached_low_comms[mca_coll_han_component.han_allreduce_low_module];
+    up_comm = han_module->cached_up_comms[mca_coll_han_component.han_allreduce_up_module];
+    COLL_BASE_COMPUTED_SEGCOUNT(mca_coll_han_component.han_allreduce_segsize, dtype_size,
+                                seg_count);
+
+    low_comm_dup = han_module->cached_low_comms_dup[mca_coll_han_component.han_allreduce_low_module];
+    up_comm_dup = han_module->cached_up_comms_dup[mca_coll_han_component.han_allreduce_up_module];
+
+    /* Determine number of elements sent per task. */
+    OPAL_OUTPUT_VERBOSE((10, mca_coll_han_component.han_output,
+                         "In HAN Allreduce seg_size %d seg_count %d count %d\n",
+                         mca_coll_han_component.han_allreduce_segsize, seg_count, count));
+    int num_segments = (count + seg_count - 1) / seg_count;
+    int last_seg_count = count - (num_segments - 1) * seg_count;
+
+    /* start with rank 0 being root in both levels */
+    int root_up_rank = 0;
+    int root_low_rank = 0;
+
+    int low_comm_size = ompi_comm_size(low_comm);
+    int up_comm_size  = ompi_comm_size(up_comm);
+
+    /* make sure we don't have more leaders than we have ranks in the low_comm */
+    int num_par_segs = mca_coll_han_component.ml_max_par[ALLREDUCE];
+    if (num_par_segs < 0 || num_par_segs > low_comm_size) {
+        num_par_segs = low_comm_size;
+    }
+
+    int completed = num_segments;
+
+    ompi_request_t *complete_req = OBJ_NEW(ompi_request_t);
+    OMPI_REQUEST_INIT(complete_req, false);
+    complete_req->req_state = OMPI_REQUEST_ACTIVE;
+    complete_req->req_type  = OMPI_REQUEST_COLL;
+    complete_req->req_free = ompi_coll_han_request_free;
+
+
+    for (int cur_seg = 0; cur_seg < num_segments; ++cur_seg) {
+
+        mca_coll_han_allreduce_ml_args_t *t = OBJ_NEW(mca_coll_han_allreduce_ml_args_t);
+        mca_coll_han_set_allreduce_ml_args(t, (void*)sbuf, rbuf, seg_count, dtype, op,
+                                        root_up_rank, root_low_rank, up_comm, up_comm_dup, low_comm, low_comm_dup,
+                                        num_segments, num_par_segs, cur_seg,
+                                        w_rank, last_seg_count,
+                                        complete_req, &completed);
+
+        han_allreduce_start_segment(t);
+
+        if (cur_seg == num_par_segs) {
+            break;
+        }
+
+        ++root_low_rank;
+        root_up_rank = (root_up_rank + 1) % up_comm_size;
+    }
+
+    ompi_request_wait(&complete_req, MPI_STATUS_IGNORE);
+
+    return OMPI_SUCCESS;
+
+ prev_allreduce_intra:
+    return han_module->previous_allreduce(sbuf, rbuf, count, dtype, op,
+                                          comm, han_module->previous_allreduce_module);
+}
+
+
 
 int
 mca_coll_han_allreduce_intra_simple(const void *sbuf,

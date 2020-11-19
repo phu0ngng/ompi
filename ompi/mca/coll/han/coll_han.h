@@ -209,6 +209,12 @@ typedef struct mca_coll_han_component_t {
     /* whether to use callback-based algorithms */
     bool use_cb_algorithm[COLLCOUNT];
 
+    /* whether to use callback-based algorithms */
+    bool use_ml_algorithm[COLLCOUNT];
+
+    /* limit on the number of parallel leaders active per node */
+    int ml_max_par[COLLCOUNT];
+
     /* Dynamic configuration rules */
     bool use_dynamic_file_rules;
     bool dump_dynamic_rules;
@@ -267,7 +273,8 @@ typedef struct mca_coll_han_module_t {
 
     struct ompi_communicator_t **cached_low_comms;
     struct ompi_communicator_t **cached_up_comms;
-    /* needed for callback-based allgather and only initialized there */
+    /* needed for callback-based allgather */
+    struct ompi_communicator_t **cached_low_comms_dup;
     struct ompi_communicator_t **cached_up_comms_dup;
     int *cached_vranks;
     int *cached_topo;
@@ -498,6 +505,15 @@ int mca_coll_han_allreduce_intra(const void *sbuf,
 
 int
 mca_coll_han_allreduce_intra_cb(const void *sbuf,
+                                void *rbuf,
+                                int count,
+                                struct ompi_datatype_t *dtype,
+                                struct ompi_op_t *op,
+                                struct ompi_communicator_t *comm, mca_coll_base_module_t * module);
+
+
+int
+mca_coll_han_allreduce_intra_ml(const void *sbuf,
                                 void *rbuf,
                                 int count,
                                 struct ompi_datatype_t *dtype,

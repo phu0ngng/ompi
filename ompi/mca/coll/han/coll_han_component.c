@@ -132,6 +132,11 @@ static bool is_cb_implemented(COLLTYPE_T coll)
     return (coll == ALLREDUCE);
 }
 
+static bool is_ml_implemented(COLLTYPE_T coll)
+{
+    return (coll == ALLREDUCE);
+}
+
 const char* mca_coll_han_topo_lvl_to_str(TOPO_LVL_T topo_lvl)
 {
     switch(topo_lvl) {
@@ -317,6 +322,33 @@ static int han_register(void)
                                             OPAL_INFO_LVL_5,
                                             MCA_BASE_VAR_SCOPE_READONLY,
                                             &(cs->use_cb_algorithm[coll]));
+        }
+
+        cs->use_ml_algorithm[coll] = false;
+        if (is_ml_implemented(coll))
+        {
+            snprintf(param_name, sizeof(param_name), "use_ml_%s",
+                     mca_coll_base_colltype_to_str(coll));
+            snprintf(param_desc, sizeof(param_desc), "whether to enable multi-leader algo for %s",
+                     mca_coll_base_colltype_to_str(coll));
+            mca_base_component_var_register(c, param_name,
+                                            param_desc,
+                                            MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0,
+                                            OPAL_INFO_LVL_5,
+                                            MCA_BASE_VAR_SCOPE_READONLY,
+                                            &(cs->use_ml_algorithm[coll]));
+
+            cs->ml_max_par[coll] = -1;
+            snprintf(param_name, sizeof(param_name), "ml_max_par_%s",
+                     mca_coll_base_colltype_to_str(coll));
+            snprintf(param_desc, sizeof(param_desc), "limit on the number of parallel leaders in %s (-1: number of ranks in the low_comm)",
+                     mca_coll_base_colltype_to_str(coll));
+            mca_base_component_var_register(c, param_name,
+                                            param_desc,
+                                            MCA_BASE_VAR_TYPE_INT, NULL, 0, 0,
+                                            OPAL_INFO_LVL_5,
+                                            MCA_BASE_VAR_SCOPE_READONLY,
+                                            &(cs->ml_max_par[coll]));
         }
     }
 
