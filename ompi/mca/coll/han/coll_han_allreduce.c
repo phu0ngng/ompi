@@ -698,8 +698,11 @@ mca_coll_han_allreduce_intra_cb(const void *sbuf,
 
 /*** Allreduce using multi-leaders ***/
 
+typedef struct segment_operation_order_t  segment_operation_order_t;
+
 struct mca_coll_han_allreduce_ml_args_s {
-    opal_object_t super;
+    opal_list_item_t super;
+    segment_operation_order_t *op_order;
     ompi_communicator_t *up_comm;
     ompi_communicator_t *up_comm_dup;
     ompi_communicator_t *low_comm;
@@ -726,6 +729,7 @@ typedef struct mca_coll_han_allreduce_ml_args_s mca_coll_han_allreduce_ml_args_t
 
 static inline void
 mca_coll_han_set_allreduce_ml_args(mca_coll_han_allreduce_ml_args_t * args,
+                                segment_operation_order_t *op_order,
                                 void *sbuf,
                                 void *rbuf,
                                 int seg_count,
@@ -744,6 +748,7 @@ mca_coll_han_set_allreduce_ml_args(mca_coll_han_allreduce_ml_args_t * args,
                                 int last_seg_count,
                                 ompi_request_t * req, int *completed)
 {
+    args->op_order = op_order;
     args->sbuf = sbuf;
     args->rbuf = rbuf;
     args->seg_count = seg_count;
@@ -779,14 +784,129 @@ han_allreduce_ml_args_dtor(mca_coll_han_allreduce_ml_args_t *t)
         /* all operations have completed so signal completion */
         ompi_request_complete(t->req, true);
     }
+
 }
 
 
 OBJ_CLASS_DECLARATION(mca_coll_han_allreduce_ml_args_t);
 
-OBJ_CLASS_INSTANCE(mca_coll_han_allreduce_ml_args_t, opal_object_t,
+OBJ_CLASS_INSTANCE(mca_coll_han_allreduce_ml_args_t, opal_list_item_t,
                    NULL, han_allreduce_ml_args_dtor);
 
+struct segment_operation_order_t {
+    opal_object_t super;
+    opal_list_t ireduce_list; // << List of outstanding low_comm ireduce operations
+    opal_list_t ibcast_list;  // << List of outstanding low_comm ibcast operations
+    opal_mutex_t *mutex;
+    int ireduce_pos; // << The last low_comm ireduce operation that was initiated
+    int ibcast_pos;  // << The last low_comm ibcast operation that was initiated
+};
+
+static void segment_operation_order_ctor(segment_operation_order_t *op_order)
+{
+    OBJ_CONSTRUCT(&op_order->ibcast_list, opal_list_t);
+    OBJ_CONSTRUCT(&op_order->ireduce_list, opal_list_t);
+    op_order->mutex = OBJ_NEW(opal_mutex_t);
+    op_order->ibcast_pos = 0;
+    op_order->ireduce_pos = 0;
+}
+
+static void segment_operation_order_dtor(segment_operation_order_t *op_order)
+{
+    OBJ_DESTRUCT(&op_order->ibcast_list);
+    OBJ_DESTRUCT(&op_order->ireduce_list);
+    OBJ_RELEASE(op_order->mutex);
+}
+
+OBJ_CLASS_DECLARATION(segment_operation_order_t);
+
+OBJ_CLASS_INSTANCE(segment_operation_order_t, opal_object_t,
+                   segment_operation_order_dtor, segment_operation_order_ctor);
+
+static
+int low_ibcast_ml_complete_cb(ompi_request_t *request);
+
+static void
+han_allreduce_start_segment(mca_coll_han_allreduce_ml_args_t *t);
+
+/**
+ * Progress outstanding eligible operations.
+ * This assumes that the t->op_order->mutex is taken already.
+ * During the course of execution, the lock might be released and retaken,
+ * making sure that the lock is taken before returning from the call.
+ */
+static void progress_segments_nolock(mca_coll_han_allreduce_ml_args_t *t)
+{
+    opal_list_item_t *item;
+
+    OBJ_RETAIN(t);
+
+    /* we cannot use the iterator macros here because the list might be altered
+     * by a callback while iterating here */
+    while(NULL != (item = opal_list_remove_first(&t->op_order->ireduce_list)))
+    {
+        mca_coll_han_allreduce_ml_args_t *item_seg;
+        item_seg = (mca_coll_han_allreduce_ml_args_t*) item;
+        assert(item_seg->cur_seg >= t->op_order->ireduce_pos);
+        if (item_seg->cur_seg == t->op_order->ireduce_pos) {
+
+            OPAL_THREAD_UNLOCK(t->op_order->mutex);
+
+            /* han_allreduce_start_segment will increment the ireduce_pos counter for us */
+            han_allreduce_start_segment(t);
+
+            OPAL_THREAD_LOCK(t->op_order->mutex);
+        } else {
+            /* put the element back into the list */
+            opal_list_append(&t->op_order->ireduce_list, item);
+            /* We started all we could, nothing else to do */
+            break;
+        }
+    }
+
+
+    while(NULL != (item = opal_list_remove_first(&t->op_order->ireduce_list)))
+    {
+        mca_coll_han_allreduce_ml_args_t *item_seg;
+        item_seg = (mca_coll_han_allreduce_ml_args_t*) item;
+        assert(item_seg->cur_seg >= t->op_order->ibcast_pos);
+        if (item_seg->cur_seg == t->op_order->ibcast_pos) {
+
+            OPAL_THREAD_UNLOCK(t->op_order->mutex);
+
+            ompi_request_t *request;
+            t->low_comm_dup->c_coll->coll_ibcast((char *) t->rbuf_seg, t->cur_seg_count, t->dtype, t->root_low_rank,
+                                            t->low_comm_dup, &request, t->low_comm_dup->c_coll->coll_ibcast_module);
+            ompi_request_set_callback(request, &low_ibcast_ml_complete_cb, t);
+
+            OPAL_THREAD_LOCK(t->op_order->mutex);
+            t->op_order->ibcast_pos++;
+
+        } else {
+            /* put the element back into the list */
+            opal_list_append(&t->op_order->ibcast_list, item);
+            /* We started all we could, nothing else to do */
+            break;
+        }
+    }
+
+    OBJ_RELEASE(t);
+}
+
+#define ENQUEUE_SEGMENT(_segment, _op) \
+    do {                    \
+        opal_list_item_t *item; \
+        for (item  = opal_list_get_begin(&(_segment)->op_order->_op ## _list); \
+             item != opal_list_get_end(&(_segment)->op_order->_op ## _list);   \
+             item  = opal_list_get_next(item)) {       \
+            mca_coll_han_allreduce_ml_args_t *item_seg; \
+            item_seg = (mca_coll_han_allreduce_ml_args_t*) (item); \
+            if (item_seg->cur_seg > (_segment)->cur_seg) {                                             \
+                break;                                                                                 \
+            }                                                                                          \
+        }                                                                                              \
+        opal_list_insert_pos(&(_segment)->op_order->_op ## _list, item, &(_segment)->super);           \
+    } while(0)
 
 static
 int low_ibcast_ml_complete_cb(ompi_request_t *request)
@@ -817,12 +937,27 @@ int up_ibcast_ml_complete_cb(ompi_request_t *request)
 
     /* the up_comm root has initialized the low_comm bcast together with the up_comm bcast already */
     if (ompi_comm_rank(t->up_comm) != t->root_up_rank) {
-        ompi_request_t *request;
-        t->low_comm_dup->c_coll->coll_ibcast((char *) t->rbuf_seg, t->cur_seg_count, t->dtype, t->root_low_rank,
-                                        t->low_comm_dup, &request, t->low_comm_dup->c_coll->coll_ibcast_module);
+
+        if (t->op_order->ibcast_pos == t->cur_seg) {
+            ompi_request_t *request;
+            t->low_comm_dup->c_coll->coll_ibcast((char *) t->rbuf_seg, t->cur_seg_count, t->dtype, t->root_low_rank,
+                                            t->low_comm_dup, &request, t->low_comm_dup->c_coll->coll_ibcast_module);
+
+            OPAL_THREAD_LOCK(t->op_order->mutex);
+            t->op_order->ibcast_pos++;
+            /* see if we can progress something */
+            progress_segments_nolock(t);
+            OPAL_THREAD_UNLOCK(t->op_order->mutex);
+
+            ompi_request_set_callback(request, &low_ibcast_ml_complete_cb, t);
+        } else {
+            /* this operation is not yet eligible so enqueue it in order */
+            OPAL_THREAD_LOCK(t->op_order->mutex);
+            ENQUEUE_SEGMENT(t, ibcast);
+            OPAL_THREAD_UNLOCK(t->op_order->mutex);
+        }
 
         OBJ_RETAIN(t);
-        ompi_request_set_callback(request, &low_ibcast_ml_complete_cb, t);
     }
 
     OBJ_RELEASE(t);
@@ -850,13 +985,27 @@ int up_ireduce_ml_complete_cb(ompi_request_t *request)
     ompi_request_set_callback(up_request, &up_ibcast_ml_complete_cb, t);
 
     if (ompi_comm_rank(t->up_comm) == t->root_up_rank) {
-        /* on the up root node, initialize the bcast on the node immediately */
-        ompi_request_t *low_request;
-        t->low_comm_dup->c_coll->coll_ibcast(t->rbuf_seg, t->cur_seg_count, t->dtype, t->root_low_rank,
-                                         t->low_comm_dup, &low_request, t->low_comm_dup->c_coll->coll_ibcast_module);
 
+        if (t->op_order->ibcast_pos == t->cur_seg) {
+            /* on the up root node, initialize the bcast on the node immediately */
+            ompi_request_t *low_request;
+            t->low_comm_dup->c_coll->coll_ibcast(t->rbuf_seg, t->cur_seg_count, t->dtype, t->root_low_rank,
+                                            t->low_comm_dup, &low_request, t->low_comm_dup->c_coll->coll_ibcast_module);
+
+            OPAL_THREAD_LOCK(t->op_order->mutex);
+            t->op_order->ibcast_pos++;
+            /* see if we can progress something */
+            progress_segments_nolock(t);
+            OPAL_THREAD_UNLOCK(t->op_order->mutex);
+
+            ompi_request_set_callback(low_request, &low_ibcast_ml_complete_cb, t);
+        } else {
+            /* this operation is not yet eligible so enqueue it in order */
+            OPAL_THREAD_LOCK(t->op_order->mutex);
+            ENQUEUE_SEGMENT(t, ibcast);
+            OPAL_THREAD_UNLOCK(t->op_order->mutex);
+        }
         OBJ_RETAIN(t);
-        ompi_request_set_callback(low_request, &low_ibcast_ml_complete_cb, t);
     }
 
     OBJ_RELEASE(t);
@@ -865,9 +1014,6 @@ int up_ireduce_ml_complete_cb(ompi_request_t *request)
     return 1;
 }
 
-
-static void
-han_allreduce_start_segment(mca_coll_han_allreduce_ml_args_t *t);
 
 static int low_ireduce_ml_complete_cb(ompi_request_t *request)
 {
@@ -897,13 +1043,28 @@ static int low_ireduce_ml_complete_cb(ompi_request_t *request)
                                           up_comm, &request, up_comm->c_coll->coll_ireduce_module);
         ompi_request_set_callback(request, &up_ireduce_ml_complete_cb, t);
 
-    } else {
+    } else if (t->op_order->ibcast_pos == t->cur_seg) {
         ompi_request_t *request;
+        OPAL_THREAD_LOCK(t->op_order->mutex);
+        t->op_order->ibcast_pos++;
+        OPAL_THREAD_UNLOCK(t->op_order->mutex);
         /* on non-low-root ranks go directly to the non-blocking inra-node bcast */
         t->low_comm_dup->c_coll->coll_ibcast((char *) t->rbuf_seg, t->cur_seg_count, t->dtype, root_low_rank,
                                       t->low_comm_dup, &request, t->low_comm_dup->c_coll->coll_ibcast_module);
 
+        OPAL_THREAD_LOCK(t->op_order->mutex);
+        t->op_order->ibcast_pos++;
+        /* see if we can progress something */
+        progress_segments_nolock(t);
+        OPAL_THREAD_UNLOCK(t->op_order->mutex);
+
         ompi_request_set_callback(request, &low_ibcast_ml_complete_cb, t);
+    } else {
+
+        /* this operation is not yet eligible so enqueue it in order */
+        OPAL_THREAD_LOCK(t->op_order->mutex);
+        ENQUEUE_SEGMENT(t, ireduce);
+        OPAL_THREAD_UNLOCK(t->op_order->mutex);
     }
 
     return 1;
@@ -932,26 +1093,39 @@ han_allreduce_start_segment(mca_coll_han_allreduce_ml_args_t *t)
     t->sbuf_seg = sbuf_seg;
     t->rbuf_seg = rbuf_seg;
 
-    /* Blocking intra-node reduce */
-    if (MPI_IN_PLACE == t->sbuf) {
-        if (low_rank == root_low_rank) {
-            low_comm->c_coll->coll_ireduce(MPI_IN_PLACE, (char *) rbuf_seg, cur_seg_count, t->dtype,
-                                          t->op, root_low_rank, low_comm, &request,
-                                          low_comm->c_coll->coll_reduce_module);
+
+    if (t->op_order->ireduce_pos == t->cur_seg_count-1) {
+
+        /* Blocking intra-node reduce */
+        if (MPI_IN_PLACE == t->sbuf) {
+            if (low_rank == root_low_rank) {
+                low_comm->c_coll->coll_ireduce(MPI_IN_PLACE, (char *) rbuf_seg, cur_seg_count, t->dtype,
+                                              t->op, root_low_rank, low_comm, &request,
+                                              low_comm->c_coll->coll_reduce_module);
+            }
+            else {
+                low_comm->c_coll->coll_ireduce((char *) rbuf_seg, NULL, cur_seg_count, t->dtype,
+                                              t->op, root_low_rank, low_comm, &request,
+                                              low_comm->c_coll->coll_reduce_module);
+            }
         }
         else {
-            low_comm->c_coll->coll_ireduce((char *) rbuf_seg, NULL, cur_seg_count, t->dtype,
+            low_comm->c_coll->coll_ireduce((char *) sbuf_seg, (char *) rbuf_seg, cur_seg_count, t->dtype,
                                           t->op, root_low_rank, low_comm, &request,
                                           low_comm->c_coll->coll_reduce_module);
         }
+        OPAL_THREAD_LOCK(t->op_order->mutex);
+        t->op_order->ireduce_pos++;
+        /* see if we can progress something */
+        progress_segments_nolock(t);
+        OPAL_THREAD_UNLOCK(t->op_order->mutex);
+        ompi_request_set_callback(request, &low_ireduce_ml_complete_cb, t);
+    } else {
+        /* this operation is not yet eligible so enqueue it in order */
+        OPAL_THREAD_LOCK(t->op_order->mutex);
+        ENQUEUE_SEGMENT(t, ireduce);
+        OPAL_THREAD_UNLOCK(t->op_order->mutex);
     }
-    else {
-        low_comm->c_coll->coll_ireduce((char *) sbuf_seg, (char *) rbuf_seg, cur_seg_count, t->dtype,
-                                      t->op, root_low_rank, low_comm, &request,
-                                      low_comm->c_coll->coll_reduce_module);
-    }
-
-    ompi_request_set_callback(request, &low_ireduce_ml_complete_cb, t);
 }
 
 int
@@ -1022,6 +1196,10 @@ mca_coll_han_allreduce_intra_ml(const void *sbuf,
         num_par_segs = low_comm_size;
     }
 
+    if (num_par_segs > num_segments) {
+        num_par_segs = num_segments;
+    }
+
     int completed = num_segments;
 
     ompi_request_t *complete_req = OBJ_NEW(ompi_request_t);
@@ -1030,27 +1208,28 @@ mca_coll_han_allreduce_intra_ml(const void *sbuf,
     complete_req->req_type  = OMPI_REQUEST_COLL;
     complete_req->req_free = ompi_coll_han_request_free;
 
+    segment_operation_order_t *op_order = OBJ_NEW(segment_operation_order_t);
 
-    for (int cur_seg = 0; cur_seg < num_segments; ++cur_seg) {
+    /* Prepare all segments that are started concurrently */
+    for (int cur_seg = 0; cur_seg < num_par_segs; ++cur_seg) {
 
         mca_coll_han_allreduce_ml_args_t *t = OBJ_NEW(mca_coll_han_allreduce_ml_args_t);
-        mca_coll_han_set_allreduce_ml_args(t, (void*)sbuf, rbuf, seg_count, dtype, op,
-                                        root_up_rank, root_low_rank, up_comm, up_comm_dup, low_comm, low_comm_dup,
-                                        num_segments, num_par_segs, cur_seg,
-                                        w_rank, last_seg_count,
-                                        complete_req, &completed);
+        mca_coll_han_set_allreduce_ml_args(t, op_order, (void*)sbuf, rbuf, seg_count, dtype, op,
+                                           root_up_rank, root_low_rank,
+                                           up_comm, up_comm_dup, low_comm, low_comm_dup,
+                                           num_segments, num_par_segs, cur_seg,
+                                           w_rank, last_seg_count,
+                                           complete_req, &completed);
 
         han_allreduce_start_segment(t);
-
-        if (cur_seg == num_par_segs) {
-            break;
-        }
 
         ++root_low_rank;
         root_up_rank = (root_up_rank + 1) % up_comm_size;
     }
 
     ompi_request_wait(&complete_req, MPI_STATUS_IGNORE);
+
+    OBJ_RELEASE(op_order);
 
     return OMPI_SUCCESS;
 
