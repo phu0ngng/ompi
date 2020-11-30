@@ -84,6 +84,11 @@ void ompi_request_cont_complete_req(ompi_request_cont_t *cb)
 }
 
 /**
+ * Progress a continuation request that has local completions.
+ */
+int ompi_request_cont_progress_request(ompi_request_t *cont_req);
+
+/**
  * Register a continuation for a set of operations represented by \c requests.
  * If all operations have completed already the continuation will not be registered
  * and \c all_complete will be set to 1.
@@ -107,19 +112,20 @@ int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req);
 /**
  * Progress outstanding ready continuations.
  */
-int ompi_request_cont_progress_callback();
+int ompi_request_cont_progress_callback(void);
 
 
 /**
  * Progress completed requests whose user-callback are pending.
  */
 static inline
-int ompi_request_cont_progress_ready()
+int ompi_request_cont_progress_ready(void)
 {
     /* fast-path */
     if (opal_fifo_is_empty(request_cont_fifo)) return OMPI_SUCCESS;
+    ompi_request_cont_progress_callback();
 
-    return ompi_request_cont_progress_callback();
+    return OMPI_SUCCESS;
 }
 
 END_C_DECLS

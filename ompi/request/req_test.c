@@ -48,6 +48,10 @@ int ompi_request_default_test(ompi_request_t ** rptr,
         return OMPI_SUCCESS;
     }
 
+    if (OMPI_REQUEST_CONT == request->req_type) {
+        ompi_request_cont_progress_request(request);
+    }
+
     if( REQUEST_COMPLETE(request) ) {
 #if OPAL_ENABLE_FT_CR == 1
         if( opal_cr_is_enabled) {
@@ -124,6 +128,10 @@ int ompi_request_default_test_any(
         if( request->req_state == OMPI_REQUEST_INACTIVE ) {
             num_requests_null_inactive++;
             continue;
+        }
+
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            ompi_request_cont_progress_request(request);
         }
 
         if( REQUEST_COMPLETE(request) ) {
@@ -206,6 +214,10 @@ int ompi_request_default_test_all(
     rptr = requests;
     for (i = 0; i < count; i++, rptr++) {
         request = *rptr;
+
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            ompi_request_cont_progress_request(request);
+        }
 
         if( request->req_state == OMPI_REQUEST_INACTIVE ||
             REQUEST_COMPLETE(request)) {
@@ -324,6 +336,11 @@ int ompi_request_default_test_some(
             num_requests_null_inactive++;
             continue;
         }
+
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            ompi_request_cont_progress_request(request);
+        }
+
         if( REQUEST_COMPLETE(request) ) {
 #if OPAL_ENABLE_FT_CR == 1
             if( opal_cr_is_enabled) {

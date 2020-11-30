@@ -136,6 +136,12 @@ int ompi_request_cont_progress_callback()
     return ompi_request_cont_progress_some(1);
 }
 
+int ompi_request_cont_progress_request(ompi_request_t *cont_req)
+{
+    /* progress as many as possible */
+    return ompi_request_cont_progress_some(UINT32_MAX);
+}
+
 int ompi_request_cont_init(void)
 {
     progress_callback_registered = 0;
