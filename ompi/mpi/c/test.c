@@ -71,6 +71,8 @@ int MPI_Test(MPI_Request *request, int *completed, MPI_Status *status)
         opal_memchecker_base_mem_undefined(&status->MPI_ERROR, sizeof(int));
     );
 
+    ompi_request_cont_progress_ready();
+
     OPAL_CR_EXIT_LIBRARY();
 
     if (OMPI_SUCCESS == rc) {

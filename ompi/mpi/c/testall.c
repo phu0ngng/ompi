@@ -82,6 +82,7 @@ int MPI_Testall(int count, MPI_Request requests[], int *flag,
 
     if (OMPI_SUCCESS == ompi_request_test_all(count, requests, flag,
                                               statuses)) {
+        ompi_request_cont_progress_ready();
         OPAL_CR_EXIT_LIBRARY();
         return MPI_SUCCESS;
     }

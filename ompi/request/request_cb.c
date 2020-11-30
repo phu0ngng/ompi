@@ -102,7 +102,8 @@ void ompi_request_cont_invoke(ompi_request_cont_t *cont)
     ompi_request_cont_destroy(cont, cont_req);
 }
 
-int ompi_request_cont_progress_callback()
+static
+int ompi_request_cont_progress_some(const uint32_t max)
 {
     /*
      * Allow multiple threads to progress callbacks concurrently
@@ -123,11 +124,16 @@ int ompi_request_cont_progress_callback()
         if (NULL == cb) break;
         ompi_request_cont_invoke(cb);
         completed++;
-    } while (1);
+    } while (max > completed);
 
     in_progress = 0;
 
     return completed;
+}
+
+int ompi_request_cont_progress_callback()
+{
+    return ompi_request_cont_progress_some(1);
 }
 
 int ompi_request_cont_init(void)
