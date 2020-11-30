@@ -16,6 +16,7 @@
 #include "ompi_config.h"
 #include "opal/class/opal_free_list.h"
 #include "opal/class/opal_fifo.h"
+#include "ompi/info/info.h"
 #include "mpi.h"
 
 
@@ -49,7 +50,13 @@ struct ompi_request_cont_t {
 /* Convenience typedef */
 typedef struct ompi_request_cont_t ompi_request_cont_t;
 
-extern opal_fifo_t *request_cont_fifo;
+//#define USE_FIFO 1
+
+#ifdef USE_FIFO
+extern opal_fifo_t *request_cont_fifo = NULL;
+#else
+extern opal_list_t *request_cont_list;
+#endif
 
 /**
  * Initialize the user-callback infrastructure.
@@ -84,6 +91,18 @@ void ompi_request_cont_complete_req(ompi_request_cont_t *cb)
 }
 
 /**
+ * Register a request with local completion list for progressing through
+ * the progress engine.
+ */
+int ompi_request_cont_progress_register_request(ompi_request_t *cont_req);
+
+/**
+ * Register a request with local completion list for progressing through
+ * the progress engine.
+ */
+int ompi_request_cont_progress_deregister_request(ompi_request_t *cont_req);
+
+/**
  * Progress a continuation request that has local completions.
  */
 int ompi_request_cont_progress_request(ompi_request_t *cont_req);
@@ -106,7 +125,7 @@ int ompi_request_cont_register(
 /**
  * Allocate a new (presistent & transient) continuation request.
  */
-int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req);
+int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req, ompi_info_t *info);
 
 
 /**
@@ -122,7 +141,12 @@ static inline
 int ompi_request_cont_progress_ready(void)
 {
     /* fast-path */
+#ifdef USE_FIFO
     if (opal_fifo_is_empty(request_cont_fifo)) return OMPI_SUCCESS;
+#else
+    if (opal_list_is_empty(request_cont_list)) return OMPI_SUCCESS;
+#endif
+
     ompi_request_cont_progress_callback();
 
     return OMPI_SUCCESS;

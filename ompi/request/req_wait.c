@@ -39,9 +39,17 @@ int ompi_request_default_wait(
 {
     ompi_request_t *req = *req_ptr;
 
+    if (OMPI_REQUEST_CONT == req->req_type) {
+        ompi_request_cont_progress_register_request(req);
+    }
+
     ompi_request_wait_completion(req);
 
     OMPI_CRCP_REQUEST_COMPLETE(req);
+
+    if (OMPI_REQUEST_CONT == req->req_type) {
+        ompi_request_cont_progress_deregister_request(req);
+    }
 
     /* return status.  If it's a generalized request, we *have* to
        invoke the query_fn, even if the user procided STATUS_IGNORE.
@@ -94,6 +102,7 @@ int ompi_request_default_wait_any(size_t count,
     int rc = OMPI_SUCCESS;
     ompi_request_t *request=NULL;
     ompi_wait_sync_t sync;
+    bool have_cont_req = false;
 
     if (OPAL_UNLIKELY(0 == count)) {
         *index = MPI_UNDEFINED;
@@ -107,6 +116,11 @@ int ompi_request_default_wait_any(size_t count,
         void *_tmp_ptr = REQUEST_PENDING;
 
         request = requests[i];
+
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            have_cont_req = true;
+            ompi_request_cont_progress_register_request(request);
+        }
 
         /* Check for null or completed persistent request. For
          * MPI_REQUEST_NULL, the req_state is always OMPI_REQUEST_INACTIVE.
@@ -137,6 +151,16 @@ int ompi_request_default_wait_any(size_t count,
     SYNC_WAIT(&sync);
 
   after_sync_wait:
+
+    if (have_cont_req) {
+        for (i = 0; i < count; i++) {
+            request = requests[i];
+            if (OMPI_REQUEST_CONT == request->req_type) {
+                ompi_request_cont_progress_deregister_request(request);
+            }
+        }
+    }
+
     /* recheck the complete status and clean up the sync primitives.
      * Do it backward to return the earliest complete request to the
      * user.
@@ -231,6 +255,10 @@ int ompi_request_default_wait_all( size_t count,
             continue;
         }
 
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            ompi_request_cont_progress_register_request(request);
+        }
+
         if (!OPAL_ATOMIC_COMPARE_EXCHANGE_STRONG_PTR(&request->req_complete, &_tmp_ptr, &sync)) {
             if( OPAL_UNLIKELY( MPI_SUCCESS != request->req_status.MPI_ERROR ) ) {
                 failed++;
@@ -262,6 +290,11 @@ int ompi_request_default_wait_all( size_t count,
             void *_tmp_ptr = &sync;
 
             request = *rptr;
+
+            if (OMPI_REQUEST_CONT == request->req_type) {
+                ompi_request_cont_progress_deregister_request(request);
+            }
+
 
             if( request->req_state == OMPI_REQUEST_INACTIVE ) {
                 statuses[i] = ompi_status_empty;
@@ -327,6 +360,10 @@ int ompi_request_default_wait_all( size_t count,
             void *_tmp_ptr = &sync;
 
             request = *rptr;
+
+            if (OMPI_REQUEST_CONT == request->req_type) {
+                ompi_request_cont_progress_deregister_request(request);
+            }
 
             if( request->req_state == OMPI_REQUEST_INACTIVE ) {
                 rc = ompi_status_empty.MPI_ERROR;
@@ -424,6 +461,10 @@ int ompi_request_default_wait_some(size_t count,
     for (size_t i = 0; i < count; i++, rptr++) {
         void *_tmp_ptr = REQUEST_PENDING;
 
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            ompi_request_cont_progress_register_request(request);
+        }
+
         request = *rptr;
         /*
          * Check for null or completed persistent request.
@@ -465,6 +506,10 @@ int ompi_request_default_wait_some(size_t count,
         void *_tmp_ptr = &sync;
 
         request = *rptr;
+
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            ompi_request_cont_progress_deregister_request(request);
+        }
 
         if( request->req_state == OMPI_REQUEST_INACTIVE ) {
             continue;

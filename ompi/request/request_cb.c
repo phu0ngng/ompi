@@ -25,8 +25,11 @@ static opal_free_list_t request_callback_freelist;
  * invoked. Use atomic push to avoid race conditions if multiple threads
  * complete requests.
  */
+#ifdef USE_FIFO
 opal_fifo_t *request_cont_fifo = NULL;
-
+#else
+opal_list_t *request_cont_list = NULL;
+#endif
 static opal_mutex_t request_cont_lock;
 
 /**
@@ -102,24 +105,32 @@ void ompi_request_cont_invoke(ompi_request_cont_t *cont)
     ompi_request_cont_destroy(cont, cont_req);
 }
 
+/*
+  * Allow multiple threads to progress callbacks concurrently
+  * but protect from recursive progressing
+  */
+static opal_thread_local int in_progress = 0;
+
 static
 int ompi_request_cont_progress_some(const uint32_t max)
 {
-    /*
-     * Allow multiple threads to progress callbacks concurrently
-     * but protect from recursive progressing
-     */
-    static opal_thread_local int in_progress = 0;
 
+#ifdef USE_FIFO
     if (in_progress || opal_fifo_is_empty(request_cont_fifo)) return 0;
-
+#else
+    if (in_progress || opal_list_is_empty(request_cont_list)) return 0;
+#endif
     int completed = 0;
     in_progress = 1;
 
     do {
         ompi_request_cont_t *cb;
         OPAL_THREAD_LOCK(&request_cont_lock);
+#ifdef USE_FIFO
         cb = (ompi_request_cont_t*)opal_fifo_pop_st(request_cont_fifo);
+#else
+        cb = (ompi_request_cont_t*)opal_list_remove_first(request_cont_list);
+#endif
         OPAL_THREAD_UNLOCK(&request_cont_lock);
         if (NULL == cb) break;
         ompi_request_cont_invoke(cb);
@@ -138,8 +149,80 @@ int ompi_request_cont_progress_callback()
 
 int ompi_request_cont_progress_request(ompi_request_t *cont_req)
 {
+    if (in_progress) return 0;
+    if (NULL == cont_req->cont_complete_list) {
     /* progress as many as possible */
     return ompi_request_cont_progress_some(UINT32_MAX);
+    }
+    if (opal_list_is_empty(cont_req->cont_complete_list)) {
+        return 0;
+    }
+
+    in_progress = 1;
+
+    int completed = 0;
+    while (!opal_list_is_empty(cont_req->cont_complete_list)) {
+        ompi_request_cont_t *cb;
+        if (opal_using_threads()) {
+            opal_atomic_lock(&cont_req->cont_lock);
+            cb = (ompi_request_cont_t *) opal_list_remove_first(cont_req->cont_complete_list);
+            opal_atomic_unlock(&cont_req->cont_lock);
+        } else {
+            cb = (ompi_request_cont_t *) opal_list_remove_first(cont_req->cont_complete_list);
+        }
+        if (NULL == cb) break;
+
+        ompi_request_cont_invoke(cb);
+        completed++;
+    }
+
+    in_progress = 0;
+
+    return completed;
+}
+
+
+int ompi_request_cont_progress_register_request(ompi_request_t *cont_req)
+{
+    if (NULL == cont_req->cont_complete_list) return OMPI_SUCCESS;
+
+    if (opal_using_threads()) {
+        OPAL_THREAD_LOCK(&request_cont_lock);
+        opal_atomic_lock(&cont_req->cont_lock);
+    }
+
+    /* signal that from now on all continuations should go into the global queue */
+    cont_req->cont_global_progress = true;
+
+    /* move all complete local continuations into the global queue */
+#ifdef USE_FIFO
+    ompi_request_cont_t *cb;
+    while (NULL != (cb = (ompi_request_cont_t *)opal_list_remove_first(cont_req->cont_complete_list))) {
+        opal_fifo_push_st(request_cont_fifo, &cb->super.super);
+    }
+#else
+    opal_list_join(request_cont_list, opal_list_get_begin(request_cont_list), cont_req->cont_complete_list);
+#endif
+
+    if (opal_using_threads()) {
+        opal_atomic_unlock(&cont_req->cont_lock);
+        OPAL_THREAD_UNLOCK(&request_cont_lock);
+    }
+
+    return OMPI_SUCCESS;
+}
+
+int ompi_request_cont_progress_deregister_request(ompi_request_t *cont_req)
+{
+    if (opal_using_threads()) {
+        opal_atomic_lock(&cont_req->cont_lock);
+        cont_req->cont_global_progress = false;
+        opal_atomic_unlock(&cont_req->cont_lock);
+    } else {
+        cont_req->cont_global_progress = false;
+    }
+
+    return OMPI_SUCCESS;
 }
 
 int ompi_request_cont_init(void)
@@ -147,8 +230,13 @@ int ompi_request_cont_init(void)
     progress_callback_registered = 0;
 
     OBJ_CONSTRUCT(&request_cont_lock, opal_mutex_t);
+#ifdef USE_FIFO
     request_cont_fifo = malloc(sizeof(*request_cont_fifo));
     OBJ_CONSTRUCT(request_cont_fifo, opal_fifo_t);
+#else
+    request_cont_list = malloc(sizeof(*request_cont_list));
+    OBJ_CONSTRUCT(request_cont_list, opal_list_t);
+#endif
 
     OBJ_CONSTRUCT(&request_callback_freelist, opal_free_list_t);
     opal_free_list_init(&request_callback_freelist,
@@ -166,8 +254,13 @@ int ompi_request_cont_finalize(void)
     if (progress_callback_registered) {
         opal_progress_unregister(&ompi_request_cont_progress_callback);
     }
+#ifdef USE_FIFO
     OBJ_DESTRUCT(request_cont_fifo);
     free(request_cont_fifo);
+#else
+    OBJ_DESTRUCT(request_cont_list);
+    free(request_cont_list);
+#endif
     OBJ_DESTRUCT(&request_cont_lock);
     OBJ_DESTRUCT(&request_callback_freelist);
 
@@ -180,13 +273,33 @@ int ompi_request_cont_finalize(void)
 void
 ompi_request_cont_enqueue_complete(ompi_request_cont_t *cont)
 {
-    OPAL_THREAD_LOCK(&request_cont_lock);
-    opal_fifo_push_st(request_cont_fifo, &cont->super.super);
-    if (OPAL_UNLIKELY(!progress_callback_registered)) {
-        opal_progress_register_post(&ompi_request_cont_progress_callback);
-        progress_callback_registered = true;
-    }
-    OPAL_THREAD_UNLOCK(&request_cont_lock);
+    int retry;
+    do {
+        retry = 0;
+        if (NULL != cont->cont_req->cont_complete_list && !cont->cont_req->cont_global_progress) {
+            opal_atomic_lock(&cont->cont_req->cont_lock);
+            if (OPAL_UNLIKELY(cont->cont_req->cont_global_progress)) {
+                opal_atomic_unlock(&cont->cont_req->cont_lock);
+                /* try again, this time target the global list */
+                retry = 1;
+                continue;
+            }
+            opal_list_append(cont->cont_req->cont_complete_list, &cont->super.super);
+            opal_atomic_unlock(&cont->cont_req->cont_lock);
+        } else {
+            OPAL_THREAD_LOCK(&request_cont_lock);
+#ifdef USE_FIFO
+            opal_fifo_push_st(request_cont_fifo, &cont->super.super);
+#else
+            opal_list_append(request_cont_list, &cont->super.super);
+#endif
+            if (OPAL_UNLIKELY(!progress_callback_registered)) {
+                opal_progress_register_post(&ompi_request_cont_progress_callback);
+                progress_callback_registered = true;
+            }
+            OPAL_THREAD_UNLOCK(&request_cont_lock);
+        }
+    } while (retry);
 }
 
 /**
@@ -313,7 +426,7 @@ static int ompi_request_cont_req_free(ompi_request_t** cont_req)
     return OMPI_SUCCESS;
 }
 
-int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req)
+int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req, ompi_info_t *info)
 {
     ompi_request_t *res = OBJ_NEW(ompi_request_t);
 
@@ -326,6 +439,16 @@ int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req)
         res->req_free = ompi_request_cont_req_free;
         res->req_status = ompi_status_empty; /* always returns MPI_SUCCESS */
         opal_atomic_lock_init(&res->cont_lock, 0);
+
+        int flag;
+        bool test_poll = false;
+        ompi_info_get_bool(info, "continue_test_poll", &test_poll, &flag);
+
+        if (flag && test_poll) {
+            res->cont_complete_list = OBJ_NEW(opal_list_t);
+        } else {
+            res->cont_complete_list = NULL;
+        }
 
         *cont_req = res;
 

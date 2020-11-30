@@ -28,7 +28,7 @@
 
 static const char FUNC_NAME[] = "MPIX_Continue_init";
 
-int MPIX_Continue_init(MPI_Request *cont_req)
+int MPIX_Continue_init(MPI_Request *cont_req, MPI_Info info)
 {
     int rc = MPI_SUCCESS;
 
@@ -45,7 +45,7 @@ int MPIX_Continue_init(MPI_Request *cont_req)
     OPAL_CR_ENTER_LIBRARY();
 
     ompi_request_t *res;
-    rc = ompi_request_cont_allocate_cont_req(&res);
+    rc = ompi_request_cont_allocate_cont_req(&res, info);
 
     if (MPI_SUCCESS == rc) {
         *cont_req = res;

@@ -69,13 +69,18 @@ static void ompi_request_construct(ompi_request_t* req)
     req->req_mpi_object.comm = (struct ompi_communicator_t*) NULL;
     req->cont_obj         = NULL;
     req->cont_status      = NULL;
+    req->cont_complete_list = NULL;
     req->cont_num_active  = 0;
+    req->cont_global_progress = false;
 }
 
 static void ompi_request_destruct(ompi_request_t* req)
 {
     assert( MPI_UNDEFINED == req->req_f_to_c_index );
     assert( OMPI_REQUEST_INVALID == req->req_state );
+    if (NULL != req->cont_complete_list) {
+        OBJ_RELEASE(req->cont_complete_list);
+    }
 }
 
 static int ompi_request_null_free(ompi_request_t** request)
