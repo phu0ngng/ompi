@@ -151,8 +151,8 @@ int ompi_request_cont_progress_request(ompi_request_t *cont_req)
 {
     if (in_progress) return 0;
     if (NULL == cont_req->cont_complete_list) {
-    /* progress as many as possible */
-    return ompi_request_cont_progress_some(UINT32_MAX);
+        /* progress as many as possible */
+        return ompi_request_cont_progress_some(cont_req->continue_max_poll);
     }
     if (opal_list_is_empty(cont_req->cont_complete_list)) {
         return 0;
@@ -160,8 +160,10 @@ int ompi_request_cont_progress_request(ompi_request_t *cont_req)
 
     in_progress = 1;
 
+    uint32_t max_poll = cont_req->continue_max_poll;
+
     int completed = 0;
-    while (!opal_list_is_empty(cont_req->cont_complete_list)) {
+    while (max_poll < completed && !opal_list_is_empty(cont_req->cont_complete_list)) {
         ompi_request_cont_t *cb;
         if (opal_using_threads()) {
             opal_atomic_lock(&cont_req->cont_lock);
@@ -460,6 +462,16 @@ int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req, ompi_info_t *
         ompi_info_get_bool(info, "continue_enqueue_complete", &enqueue_complete, &flag);
         res->cont_enqueue_complete = (flag && enqueue_complete);
 
+        char value_str[1024];
+        ompi_info_get(info, "continue_max_poll", 1024, value_str, &flag);
+        if (flag) {
+            int max_poll = atoi(value_str);
+            if (max_poll > 0) {
+                res->continue_max_poll = max_poll;
+            } else {
+                res->continue_max_poll = UINT32_MAX;
+            }
+        }
         *cont_req = res;
 
         return MPI_SUCCESS;

@@ -147,6 +147,7 @@ struct ompi_request_t {
     opal_atomic_lock_t    cont_lock;            /**< Lock used for continuation requests */
     bool                  cont_global_progress;
     bool                  cont_enqueue_complete; /**< Whether to enqueue immediately complete requests */
+    uint32_t              continue_max_poll;    /**< max number of local continuations to execute at once */
 };
 
 /**
