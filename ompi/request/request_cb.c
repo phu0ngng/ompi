@@ -403,11 +403,16 @@ int ompi_request_cont_register(
     int32_t last_num_active = OPAL_THREAD_ADD_FETCH32(&cont->num_active,
                                                       -num_complete);
     if (0 == last_num_active && 0 < num_complete) {
-        /**
-         * set flag and return the continuation to the free-list
-         */
-        *all_complete = true;
-        ompi_request_cont_destroy(cont, cont_req);
+        if (cont_req->cont_enqueue_complete) {
+            /* enqueue for later processing */
+            ompi_request_cont_enqueue_complete(cont);
+        } else {
+            /**
+            * set flag and return the continuation to the free-list
+            */
+            *all_complete = true;
+            ompi_request_cont_destroy(cont, cont_req);
+        }
     }
 
     return OMPI_SUCCESS;
@@ -449,6 +454,11 @@ int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req, ompi_info_t *
         } else {
             res->cont_complete_list = NULL;
         }
+
+        bool enqueue_complete = false;
+
+        ompi_info_get_bool(info, "continue_enqueue_complete", &enqueue_complete, &flag);
+        res->cont_enqueue_complete = (flag && enqueue_complete);
 
         *cont_req = res;
 

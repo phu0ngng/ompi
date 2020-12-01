@@ -146,6 +146,7 @@ struct ompi_request_t {
     int32_t   cont_num_active;      /**< The number of active continuations registered with a continuation request */
     opal_atomic_lock_t    cont_lock;            /**< Lock used for continuation requests */
     bool                  cont_global_progress;
+    bool                  cont_enqueue_complete; /**< Whether to enqueue immediately complete requests */
 };
 
 /**
