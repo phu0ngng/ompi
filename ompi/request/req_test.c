@@ -48,10 +48,6 @@ int ompi_request_default_test(ompi_request_t ** rptr,
         return OMPI_SUCCESS;
     }
 
-    if (OMPI_REQUEST_CONT == request->req_type) {
-        ompi_request_cont_progress_request(request);
-    }
-
     if( REQUEST_COMPLETE(request) ) {
 #if OPAL_ENABLE_FT_CR == 1
         if( opal_cr_is_enabled) {
@@ -101,6 +97,11 @@ int ompi_request_default_test(ompi_request_t ** rptr,
          * leaving. We will call the opal_progress only once per call.
          */
         opal_progress();
+
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            ompi_request_cont_progress_request(request);
+        }
+
         do_it_once++;
         goto recheck_request_status;
     }
