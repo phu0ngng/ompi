@@ -163,7 +163,7 @@ int ompi_request_cont_progress_request(ompi_request_t *cont_req)
     uint32_t max_poll = cont_req->continue_max_poll;
 
     int completed = 0;
-    while (max_poll < completed && !opal_list_is_empty(cont_req->cont_complete_list)) {
+    while (max_poll > completed && !opal_list_is_empty(cont_req->cont_complete_list)) {
         ompi_request_cont_t *cb;
         if (opal_using_threads()) {
             opal_atomic_lock(&cont_req->cont_lock);
