@@ -456,6 +456,7 @@ int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req, ompi_info_t *
         } else {
             res->cont_complete_list = NULL;
         }
+        res->continue_max_poll = UINT32_MAX;
 
         bool enqueue_complete = false;
 
@@ -468,8 +469,6 @@ int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req, ompi_info_t *
             int max_poll = atoi(value_str);
             if (max_poll > 0) {
                 res->continue_max_poll = max_poll;
-            } else {
-                res->continue_max_poll = UINT32_MAX;
             }
         }
         *cont_req = res;
