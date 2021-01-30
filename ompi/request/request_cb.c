@@ -120,7 +120,7 @@ int ompi_request_cont_progress_some(const uint32_t max)
 #else
     if (in_progress || opal_list_is_empty(request_cont_list)) return 0;
 #endif
-    int completed = 0;
+    uint32_t completed = 0;
     in_progress = 1;
 
     do {
@@ -134,8 +134,7 @@ int ompi_request_cont_progress_some(const uint32_t max)
         OPAL_THREAD_UNLOCK(&request_cont_lock);
         if (NULL == cb) break;
         ompi_request_cont_invoke(cb);
-        completed++;
-    } while (max > completed);
+    } while (max > ++completed);
 
     in_progress = 0;
 
@@ -162,7 +161,7 @@ int ompi_request_cont_progress_request(ompi_request_t *cont_req)
 
     uint32_t max_poll = cont_req->continue_max_poll;
 
-    int completed = 0;
+    uint32_t completed = 0;
     while (max_poll > completed && !opal_list_is_empty(cont_req->cont_complete_list)) {
         ompi_request_cont_t *cb;
         if (opal_using_threads()) {
@@ -456,7 +455,7 @@ int ompi_request_cont_allocate_cont_req(ompi_request_t **cont_req, ompi_info_t *
         } else {
             res->cont_complete_list = NULL;
         }
-        res->continue_max_poll = UINT32_MAX;
+        res->continue_max_poll = INT32_MAX;
 
         bool enqueue_complete = false;
 
