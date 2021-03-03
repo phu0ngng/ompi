@@ -419,6 +419,9 @@ libmpi_c_mpi_la_SOURCES = \
 	win_flush_local.c \
 	win_flush_local_all.c \
         win_free_keyval.c \
+        win_from_memhandle.c \
+        memhandle_create.c \
+        memhandle_release.c \
         win_free.c \
         win_get_attr.c \
         win_get_errhandler.c \

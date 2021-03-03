@@ -134,6 +134,14 @@ typedef struct ompi_osc_ucx_lock {
     bool is_nocheck;
 } ompi_osc_ucx_lock_t;
 
+typedef struct ompi_osc_ucx_memhandle_t {
+    int recv_worker_addr_len;  // length of the worker address string in _data
+    int data_rkey_size;             // size of the rkey
+    uint64_t data_addr;        // remote address of the data
+    uint64_t state_addr;       // remote address of the state data
+    char _data[];              // the handle data: [worker_addr|data_rkey|state_rkey]
+} ompi_osc_ucx_memhandle_t;
+
 #define OSC_UCX_GET_EP(comm_, rank_) (ompi_comm_peer_lookup(comm_, rank_)->proc_endpoints[OMPI_PROC_ENDPOINT_TAG_UCX])
 #define OSC_UCX_GET_DISP(module_, rank_) ((module_->disp_unit < 0) ? module_->disp_units[rank_] : module_->disp_unit)
 

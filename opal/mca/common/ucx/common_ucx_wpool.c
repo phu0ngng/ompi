@@ -35,7 +35,7 @@ static inline _ctx_record_t *_tlocal_get_ctx_rec(opal_tsd_tracked_key_t tls_key)
 static void _tlocal_ctx_rec_cleanup(_ctx_record_t *ctx_rec);
 static void _tlocal_mem_rec_cleanup(_mem_record_t *mem_rec);
 static void _ctx_rec_destructor(void *arg);
-static void _mem_rec_destructor(void *arg);
+void _mem_rec_destructor(void *arg);
 
 /* -----------------------------------------------------------------------------
  * Worker information (winfo) management functionality
@@ -368,12 +368,14 @@ OPAL_DECLSPEC int opal_common_ucx_wpctx_create(opal_common_ucx_wpool_t *wpool, i
 
     ctx->recv_worker_addrs = NULL;
     ctx->recv_worker_displs = NULL;
-    ret = exchange_func(wpool->recv_waddr, wpool->recv_waddr_len, &ctx->recv_worker_addrs,
-                        &ctx->recv_worker_displs, exchange_metadata);
-    if (ret != OPAL_SUCCESS) {
-        goto error;
+    if (NULL != exchange_func){
+        ret = exchange_func(wpool->recv_waddr, wpool->recv_waddr_len,
+                            &ctx->recv_worker_addrs,
+                            &ctx->recv_worker_displs, exchange_metadata);
+        if (ret != OPAL_SUCCESS) {
+            goto error;
+        }
     }
-
     OBJ_CONSTRUCT(&ctx->tls_key, opal_tsd_tracked_key_t);
     opal_tsd_tracked_key_set_destructor(&ctx->tls_key, _ctx_rec_destructor);
 
@@ -448,10 +450,12 @@ int opal_common_ucx_wpmem_create(opal_common_ucx_ctx_t *ctx, void **mem_base, si
         goto error_rkey_pack;
     }
 
-    ret = exchange_func(rkey_addr, rkey_addr_len, &mem->mem_addrs, &mem->mem_displs,
-                        exchange_metadata);
-    if (ret != OPAL_SUCCESS) {
-        goto error_rkey_pack;
+    if (NULL != exchange_func) {
+        ret = exchange_func(rkey_addr, rkey_addr_len,
+                            &mem->mem_addrs, &mem->mem_displs, exchange_metadata);
+        if (ret != OPAL_SUCCESS) {
+            goto error_rkey_pack;
+        }
     }
 
     OBJ_CONSTRUCT(&mem->tls_key, opal_tsd_tracked_key_t);
@@ -471,8 +475,9 @@ error_mem_map:
     return ret;
 }
 
-static int _comm_ucx_wpmem_map(opal_common_ucx_wpool_t *wpool, void **base, size_t size,
-                               ucp_mem_h *memh_ptr, opal_common_ucx_mem_type_t mem_type)
+int _comm_ucx_wpmem_map(opal_common_ucx_wpool_t *wpool,
+                             void **base, size_t size, ucp_mem_h *memh_ptr,
+                             opal_common_ucx_mem_type_t mem_type)
 {
     ucp_mem_map_params_t mem_params;
     ucp_mem_attr_t mem_attrs;

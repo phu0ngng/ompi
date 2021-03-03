@@ -46,6 +46,28 @@ int ompi_osc_base_select(ompi_win_t *win,
                          int flavor,
                          int *model);
 
+
+int
+ompi_osc_base_pick(ompi_win_t *win,
+                   size_t size,
+                   int disp_unit,
+                   int target,
+                   ompi_communicator_t *comm,
+                   opal_info_t *info,
+                   int flavor,
+                   int *model,
+                   ompi_memhandle_t *memhandle);
+
+int
+ompi_osc_base_get_memhandle(
+                   void *base,
+                   size_t size,
+                   ompi_communicator_t *comm,
+                   ompi_memhandle_t **memhandle,
+                   int *memhandle_size);
+
+int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle);
+
 int ompi_osc_base_finalize(void);
 
 OMPI_DECLSPEC extern mca_base_framework_t ompi_osc_base_framework;
