@@ -52,6 +52,7 @@ struct ompi_group_t;
 struct ompi_datatype_t;
 struct ompi_op_t;
 struct ompi_request_t;
+struct ompi_memhandle_t;
 
 /* ******************************************************************** */
 
@@ -153,6 +154,24 @@ typedef int (*ompi_osc_base_component_select_fn_t)(struct ompi_win_t *win,
                                                    int flavor,
                                                    int *model);
 
+
+typedef int (*ompi_osc_base_component_pick_fn_t)(struct ompi_win_t *win,
+                                                 size_t size,
+                                                 int disp_unit,
+                                                 int target,
+                                                 struct ompi_communicator_t *comm,
+                                                 struct opal_info_t *info,
+                                                 struct ompi_memhandle_t *memhandle,
+                                                 int *model);
+
+typedef int (*ompi_osc_base_component_get_memhandle_fn_t)(void *base,
+                                                 size_t size,
+                                                 struct ompi_communicator_t *comm,
+                                                 struct ompi_memhandle_t **memhandle,
+                                                 int *memhandle_size);
+
+typedef int (*ompi_osc_base_component_release_memhandle_fn_t)(struct ompi_memhandle_t *memhandle);
+
 /**
  * OSC component interface
  *
@@ -171,6 +190,12 @@ struct ompi_osc_base_component_2_0_0_t {
     ompi_osc_base_component_query_fn_t osc_query;
     /** Create module for the given window */
     ompi_osc_base_component_select_fn_t osc_select;
+    /** Create module using a given memory registration handle and component name */
+    ompi_osc_base_component_pick_fn_t osc_pick;
+    /** Create a memory handle from a given memory */
+    ompi_osc_base_component_get_memhandle_fn_t osc_get_memhandle;
+    /** Release the memory handle previously allocated through osc_get_memhandle */
+    ompi_osc_base_component_release_memhandle_fn_t osc_release_memhandle;
     /* Finalize the component infrastructure */
     ompi_osc_base_component_finalize_fn_t osc_finalize;
 };

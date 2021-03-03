@@ -417,6 +417,7 @@ typedef struct mca_base_var_enum_t *MPI_T_enum;
 typedef struct ompi_mpit_cvar_handle_t *MPI_T_cvar_handle;
 typedef struct mca_base_pvar_handle_t *MPI_T_pvar_handle;
 typedef struct mca_base_pvar_session_t *MPI_T_pvar_session;
+typedef struct ompi_memhandle_t *MPI_Memhandle;
 
 /*
  * MPI_Status
@@ -569,6 +570,7 @@ typedef MPI_Win_errhandler_function MPI_Win_errhandler_fn
 #define MPI_WIN_FLAVOR_ALLOCATE      2
 #define MPI_WIN_FLAVOR_DYNAMIC       3
 #define MPI_WIN_FLAVOR_SHARED        4
+#define MPI_WIN_FLAVOR_MEMHANDLE     5
 
 #define MPI_WIN_UNIFIED              0
 #define MPI_WIN_SEPARATE             1
@@ -836,6 +838,7 @@ enum {
 #define MPI_WIN_NULL OMPI_PREDEFINED_GLOBAL(MPI_Win, ompi_mpi_win_null)
 #define MPI_FILE_NULL OMPI_PREDEFINED_GLOBAL(MPI_File, ompi_mpi_file_null)
 #define MPI_T_ENUM_NULL ((MPI_T_enum) NULL)
+#define MPI_MEMHANDLE_NULL ((MPI_Memhandle) NULL)
 
 /*
  * MPI_INFO_ENV handle
@@ -1648,6 +1651,11 @@ OMPI_DECLSPEC  int MPI_Is_thread_main(int *flag);
 OMPI_DECLSPEC  int MPI_Lookup_name(const char *service_name, MPI_Info info, char *port_name);
 OMPI_DECLSPEC  MPI_Fint MPI_Message_c2f(MPI_Message message);
 OMPI_DECLSPEC  MPI_Message MPI_Message_f2c(MPI_Fint message);
+OMPI_DECLSPEC  int MPIX_Memhandle_create(void *base, MPI_Aint size, MPI_Comm comm,
+                                         MPI_Memhandle *memhandle, int *memhandle_size);
+OMPI_DECLSPEC  int MPIX_Win_from_memhandle(MPI_Memhandle memhandle, MPI_Aint size, int disp_unit,
+                                           MPI_Info info, int target, MPI_Comm comm, MPI_Win *newwin);
+OMPI_DECLSPEC  int MPIX_Memhandle_release(MPI_Memhandle *memhandle);
 OMPI_DECLSPEC  int MPI_Mprobe(int source, int tag, MPI_Comm comm,
                                MPI_Message *message,
                                MPI_Status *status);
@@ -2313,6 +2321,12 @@ OMPI_DECLSPEC  int PMPI_Is_thread_main(int *flag);
 OMPI_DECLSPEC  int PMPI_Lookup_name(const char *service_name, MPI_Info info, char *port_name);
 OMPI_DECLSPEC  MPI_Fint PMPI_Message_c2f(MPI_Message message);
 OMPI_DECLSPEC  MPI_Message PMPI_Message_f2c(MPI_Fint message);
+OMPI_DECLSPEC  int PMPIX_Memhandle_create(void *base, MPI_Aint size, MPI_Comm comm,
+                                          MPI_Memhandle *memhandle, int *memhandle_size);
+OMPI_DECLSPEC  int PMPIX_Memhandle_release(MPI_Memhandle *memhandle);
+OMPI_DECLSPEC  int PMPIX_Win_from_memhandle(MPI_Memhandle memhandle, MPI_Aint size, int disp_unit,
+                                            MPI_Info info, int target, MPI_Comm comm, MPI_Win *newwin);
+
 OMPI_DECLSPEC  int PMPI_Mprobe(int source, int tag, MPI_Comm comm,
                                MPI_Message *message,
                                MPI_Status *status);

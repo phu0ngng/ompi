@@ -168,7 +168,7 @@ typedef struct {
     opal_list_item_t super;
     opal_common_ucx_ctx_t *gctx;
     opal_common_ucx_winfo_t *winfo;
-} _ctx_record_t; 
+} _ctx_record_t;
 OBJ_CLASS_DECLARATION(_ctx_record_t);
 
 typedef struct {
@@ -618,6 +618,13 @@ opal_common_ucx_wpmem_fetch_nb(opal_common_ucx_wpmem_t *mem,
 
     return rc;
 }
+
+/* TODO: this needs to be fixed, just a temporary exposure to get things going */
+void _mem_rec_destructor(void * arg);
+
+int _comm_ucx_wpmem_map(opal_common_ucx_wpool_t *wpool,
+                        void **base, size_t size, ucp_mem_h *memh_ptr,
+                        opal_common_ucx_mem_type_t mem_type);
 
 END_C_DECLS
 

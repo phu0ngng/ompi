@@ -399,6 +399,9 @@ nodist_libmpi_c_pmpi_la_SOURCES = \
 	pwin_flush_local.c \
 	pwin_flush_local_all.c \
         pwin_free_keyval.c \
+        pwin_from_memhandle.c \
+        pmemhandle_create.c \
+        pmemhandle_release.c \
         pwin_free.c \
         pwin_get_attr.c \
         pwin_get_errhandler.c \

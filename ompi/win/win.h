@@ -80,7 +80,7 @@ struct ompi_win_t {
     opal_mutex_t  w_lock;
 
     char w_name[MPI_MAX_OBJECT_NAME];
-  
+
     /* Group associated with this window. */
     ompi_group_t *w_group;
 
@@ -127,6 +127,15 @@ struct ompi_predefined_win_t {
 };
 typedef struct ompi_predefined_win_t ompi_predefined_win_t;
 
+
+struct ompi_memhandle_t
+{
+    char osc_component[16]; // OSC components are short, limit to 16 chars
+    char reghandle[]; // holds the underlying registration information
+};
+
+typedef struct ompi_memhandle_t ompi_memhandle_t;
+
 OMPI_DECLSPEC extern ompi_predefined_win_t ompi_mpi_win_null;
 OMPI_DECLSPEC extern ompi_predefined_win_t *ompi_mpi_win_null_addr;
 
@@ -141,6 +150,15 @@ int ompi_win_allocate(size_t size, int disp_unit, opal_info_t *info,
 int ompi_win_allocate_shared(size_t size, int disp_unit, opal_info_t *info,
                       ompi_communicator_t *comm, void *baseptr, ompi_win_t **newwin);
 int ompi_win_create_dynamic(opal_info_t *info, ompi_communicator_t *comm, ompi_win_t **newwin);
+
+int ompi_win_from_memhandle(ompi_memhandle_t *memhandle, size_t size, int disp_unit, opal_info_t *info, int target, ompi_communicator_t *comm, ompi_win_t **newwin);
+
+int ompi_memhandle_create(void *base, size_t size,
+                          ompi_communicator_t *comm,
+                          ompi_memhandle_t **memhandle,
+                          int *memhandle_size);
+
+int ompi_memhandle_release(ompi_memhandle_t *memhandle);
 
 int ompi_win_free(ompi_win_t *win);
 
