@@ -16,9 +16,12 @@
 #include "ompi/mca/osc/base/base.h"
 #include "ompi/mca/osc/base/osc_base_obj_convert.h"
 #include "opal/mca/common/ucx/common_ucx.h"
+#include "opal/class/opal_fifo.h"
 
 #include "osc_ucx.h"
 #include "osc_ucx_request.h"
+
+#include <stddef.h>
 
 #define memcpy_off(_dst, _src, _len, _off)        \
     memcpy(((char*)(_dst)) + (_off), _src, _len); \
@@ -38,6 +41,8 @@ static void _osc_ucx_init_unlock(void)
     }
 }
 
+static opal_fifo_t module_free_list;
+
 
 static int component_open(void);
 static int component_register(void);
@@ -52,10 +57,11 @@ static int component_pick(struct ompi_win_t *win, size_t size, int disp_unit, in
                           struct ompi_communicator_t *comm, struct opal_info_t *info,
                           ompi_memhandle_t *memhandle, int *model);
 static int component_get_memhandle(void *base,
-                                  size_t size,
-                                  struct ompi_communicator_t *comm,
-                                  ompi_memhandle_t **memhandle,
-                                  int *memhandle_size);
+                                   size_t size,
+                                   struct opal_info_t *info,
+                                   struct ompi_communicator_t *comm,
+                                   ompi_memhandle_t **memhandle,
+                                   int *memhandle_size);
 static int component_release_memhandle(ompi_memhandle_t *memhandle);
 static void ompi_osc_ucx_unregister_progress(void);
 
@@ -335,6 +341,8 @@ static int initialize_env()
         OSC_UCX_VERBOSE(1, "opal_common_ucx_wpool_init failed: %d", ret);
         return OMPI_ERR_OUT_OF_RESOURCE;
     }
+
+    OBJ_CONSTRUCT(&module_free_list, opal_fifo_t);
 
     /* Make sure that all memory updates performed above are globally
       * observable before (mca_osc_ucx_component.env_initialized = true)
@@ -631,15 +639,81 @@ select_unlock:
         goto error;
     }
 
-    /* create module structure */
-    module = (ompi_osc_ucx_module_t *)calloc(1, sizeof(ompi_osc_ucx_module_t));
-    if (module == NULL) {
-        ret = OMPI_ERR_TEMP_OUT_OF_RESOURCE;
-        goto error_nomem;
+    opal_list_item_t *free_item = opal_fifo_pop(&module_free_list);
+    if (NULL != free_item) {
+        module = (ompi_osc_ucx_module_t*)(((intptr_t)free_item) - offsetof(ompi_osc_ucx_module_t, free_list_item));
+    } else {
+        /* Allocate a new module */
+
+        /* create module structure */
+        module = (ompi_osc_ucx_module_t *)calloc(1, sizeof(ompi_osc_ucx_module_t));
+        if (module == NULL) {
+            ret = OMPI_ERR_TEMP_OUT_OF_RESOURCE;
+            goto error_nomem;
+        }
+
+        /* fill in the function pointer part */
+        memcpy(module, &ompi_osc_ucx_module_template, sizeof(ompi_osc_base_module_t));
+
+        OBJ_CONSTRUCT(&module->free_list_item, opal_list_item_t);
+
+
+        module->mem = calloc(1, sizeof(*module->mem));
+        OBJ_CONSTRUCT(&module->mem->mutex, opal_mutex_t);
+        OBJ_CONSTRUCT(&module->mem->mem_records, opal_list_t);
+        OBJ_CONSTRUCT(&module->mem->tls_key, opal_tsd_tracked_key_t);
+        module->mem->mem_displs = NULL;
+        opal_tsd_tracked_key_set_destructor(&module->mem->tls_key, _mem_rec_destructor);
+
+
+        module->state_mem = calloc(1, sizeof(*module->state_mem));
+        OBJ_CONSTRUCT(&module->state_mem->mutex, opal_mutex_t);
+        OBJ_CONSTRUCT(&module->state_mem->mem_records, opal_list_t);
+        OBJ_CONSTRUCT(&module->state_mem->tls_key, opal_tsd_tracked_key_t);
+        module->state_mem->mem_displs = NULL;
+        opal_tsd_tracked_key_set_destructor(&module->state_mem->tls_key, _mem_rec_destructor);
+
+        /* init window state */
+        module->state.lock = TARGET_LOCK_UNLOCKED;
+        module->state.post_index = 0;
+        memset((void *)module->state.post_state, 0, sizeof(uint64_t) * OMPI_OSC_UCX_POST_PEER_MAX);
+        module->state.complete_count = 0;
+        module->state.req_flag = 0;
+        module->state.acc_lock = TARGET_LOCK_UNLOCKED;
+        module->state.dynamic_win_count = 0;
+        for (i = 0; i < OMPI_OSC_UCX_ATTACH_MAX; i++) {
+            module->local_dynamic_win_info[i].refcnt = 0;
+        }
+        module->epoch_type.access = NONE_EPOCH;
+        module->epoch_type.exposure = NONE_EPOCH;
+        module->lock_count = 0;
+        module->post_count = 0;
+        module->start_group = NULL;
+        module->post_group = NULL;
+        OBJ_CONSTRUCT(&module->pending_posts, opal_list_t);
+        module->start_grp_ranks = NULL;
+        module->lock_all_is_nocheck = false;
+
+        OBJ_CONSTRUCT(&module->outstanding_locks, opal_hash_table_t);
+        ret = opal_hash_table_init(&module->outstanding_locks, comm_size);
+        if (ret != OPAL_SUCCESS) {
+            goto error;
+        }
+
     }
 
-    /* fill in the function pointer part */
-    memcpy(module, &ompi_osc_ucx_module_template, sizeof(ompi_osc_base_module_t));
+
+    ret = opal_common_ucx_wpctx_create(mca_osc_ucx_component.wpool, comm_size,
+                                      NULL, NULL,
+                                      &module->ctx);
+    if (OMPI_SUCCESS != ret) {
+        goto error;
+    }
+
+    module->ctx->recv_worker_displs = NULL;
+
+    module->mem->ctx = module->ctx;
+    module->state_mem->ctx = module->ctx;
 
     module->comm = comm;
 
@@ -651,45 +725,35 @@ select_unlock:
     module->flavor = MPI_WIN_FLAVOR_MEMHANDLE;
     module->size = size;
     module->no_locks = false;
-    module->acc_single_intrinsic = check_config_value_bool ("acc_single_intrinsic", info);
+    module->acc_single_intrinsic = check_config_value_bool("acc_single_intrinsic", info);
+    module->always_lock_shared   = check_config_value_bool("mpi_lock_shared", info);
     module->disp_unit = disp_unit;
 
     ompi_osc_ucx_memhandle_t *ucx_memhandle = (ompi_osc_ucx_memhandle_t*)memhandle->reghandle;
 
-    ret = opal_common_ucx_wpctx_create(mca_osc_ucx_component.wpool, comm_size,
-                                       NULL, NULL,
-                                       &module->ctx);
-    if (OMPI_SUCCESS != ret) {
-        goto error;
-    }
-
     /* fill in the worker details */
-    module->ctx->recv_worker_displs = calloc(target+1, sizeof(int));
     module->ctx->recv_worker_addrs = malloc(ucx_memhandle->recv_worker_addr_len);
     memcpy(module->ctx->recv_worker_addrs, ucx_memhandle->_data, ucx_memhandle->recv_worker_addr_len);
 
     /* fill in the connection details */
-    module->mem = calloc(1, sizeof(*module->mem));
-    module->mem->ctx = module->ctx;
-    module->mem->mem_displs = calloc(target+1, sizeof(int));
-    module->mem->mem_addrs = malloc(ucx_memhandle->data_rkey_size);
     void *data_rkey_addr = (ucx_memhandle->_data + ucx_memhandle->recv_worker_addr_len);
     void *state_rkey_addr = (ucx_memhandle->_data + ucx_memhandle->recv_worker_addr_len + ucx_memhandle->data_rkey_size);
-    memcpy(module->mem->mem_addrs, data_rkey_addr, ucx_memhandle->data_rkey_size);
-    OBJ_CONSTRUCT(&module->mem->mutex, opal_mutex_t);
-    OBJ_CONSTRUCT(&module->mem->mem_records, opal_list_t);
-    OBJ_CONSTRUCT(&module->mem->tls_key, opal_tsd_tracked_key_t);
-    opal_tsd_tracked_key_set_destructor(&module->mem->tls_key, _mem_rec_destructor);
 
-    module->state_mem = calloc(1, sizeof(*module->state_mem));
-    module->state_mem->ctx = module->ctx;
-    module->state_mem->mem_displs = calloc(target+1, sizeof(int));
-    module->state_mem->mem_addrs = malloc(ucx_memhandle->data_rkey_size);
-    memcpy(module->state_mem->mem_addrs, state_rkey_addr, ucx_memhandle->data_rkey_size);
-    OBJ_CONSTRUCT(&module->state_mem->mutex, opal_mutex_t);
-    OBJ_CONSTRUCT(&module->state_mem->mem_records, opal_list_t);
-    OBJ_CONSTRUCT(&module->state_mem->tls_key, opal_tsd_tracked_key_t);
-    opal_tsd_tracked_key_set_destructor(&module->state_mem->tls_key, _mem_rec_destructor);
+    free(module->mem->mem_addrs);
+    module->mem->mem_addrs = malloc(ucx_memhandle->data_rkey_size);
+    memcpy(module->mem->mem_addrs, data_rkey_addr, ucx_memhandle->data_rkey_size);
+
+    free(module->state_mem->mem_addrs);
+    module->state_mem->mem_addrs = malloc(ucx_memhandle->state_rkey_size);
+    memcpy(module->state_mem->mem_addrs, state_rkey_addr, ucx_memhandle->state_rkey_size);
+
+    if (module->always_lock_shared) {
+        module->epoch_type.access = PASSIVE_EPOCH;
+        module->lock_count++;
+    } else {
+        module->epoch_type.access = NONE_EPOCH;
+        module->lock_count = 0;
+    }
 
 #if 0
     if (flavor == MPI_WIN_FLAVOR_ALLOCATE || flavor == MPI_WIN_FLAVOR_CREATE) {
@@ -727,11 +791,16 @@ select_unlock:
 
 
     /* fill in the data and state addresses */
+    free(module->addrs);
     module->addrs = calloc(target+1, sizeof(uint64_t));
-    module->state_addrs = calloc(target+1, sizeof(uint64_t));
-
     module->addrs[target] = ucx_memhandle->data_addr;
-    module->state_addrs[target] = ucx_memhandle->state_addr;
+
+    free(module->state_addrs);
+    module->state_addrs = NULL;
+    if (ucx_memhandle->state_addr) {
+        module->state_addrs = calloc(target+1, sizeof(uint64_t));
+        module->state_addrs[target] = ucx_memhandle->state_addr;
+    }
 
 #if 0
     /* exchange window addrs */
@@ -765,34 +834,8 @@ select_unlock:
     free(recv_buf);
 #endif
 
-    /* init window state */
-    module->state.lock = TARGET_LOCK_UNLOCKED;
-    module->state.post_index = 0;
-    memset((void *)module->state.post_state, 0, sizeof(uint64_t) * OMPI_OSC_UCX_POST_PEER_MAX);
-    module->state.complete_count = 0;
-    module->state.req_flag = 0;
-    module->state.acc_lock = TARGET_LOCK_UNLOCKED;
-    module->state.dynamic_win_count = 0;
-    for (i = 0; i < OMPI_OSC_UCX_ATTACH_MAX; i++) {
-        module->local_dynamic_win_info[i].refcnt = 0;
-    }
-    module->epoch_type.access = NONE_EPOCH;
-    module->epoch_type.exposure = NONE_EPOCH;
-    module->lock_count = 0;
-    module->post_count = 0;
-    module->start_group = NULL;
-    module->post_group = NULL;
-    OBJ_CONSTRUCT(&module->pending_posts, opal_list_t);
-    module->start_grp_ranks = NULL;
-    module->lock_all_is_nocheck = false;
 
-    if (!module->no_locks) {
-        OBJ_CONSTRUCT(&module->outstanding_locks, opal_hash_table_t);
-        ret = opal_hash_table_init(&module->outstanding_locks, comm_size);
-        if (ret != OPAL_SUCCESS) {
-            goto error;
-        }
-    } else {
+    if (module->no_locks) {
         win->w_flags |= OMPI_WIN_NO_LOCKS;
     }
 
@@ -813,7 +856,8 @@ select_unlock:
 
 error:
     if (module->disp_units) free(module->disp_units);
-    if (module->comm) ompi_comm_free(&module->comm);
+    if (module->addrs) free(module->addrs);
+    if (module->state_addrs) free(module->state_addrs);
     free(module);
 
 error_nomem:
@@ -829,6 +873,7 @@ error_nomem:
 
 int component_get_memhandle(void *base,
                             size_t size,
+                            struct opal_info_t *info,
                             struct ompi_communicator_t *comm,
                             ompi_memhandle_t **memhandle,
                             int *memhandle_size)
@@ -836,8 +881,8 @@ int component_get_memhandle(void *base,
     (void)comm;
     void *data_rkey_addr;
     size_t data_rkey_addr_len;
-    void *state_rkey_addr;
-    size_t state_rkey_addr_len;
+    void *state_rkey_addr = NULL;
+    size_t state_rkey_addr_len = 0;
     ucs_status_t status;
     int ret = OMPI_SUCCESS;
     ucp_mem_h data_memh, state_memh;
@@ -873,6 +918,10 @@ select_unlock:
         return ret;
     }
 
+    bool acc_single_intrinsic = check_config_value_bool ("acc_single_intrinsic", info);
+    bool always_lock_shared   = check_config_value_bool("mpi_lock_shared", info);
+
+    bool need_state = !acc_single_intrinsic || !always_lock_shared;
 
     /* register data memory */
     ret = _comm_ucx_wpmem_map(mca_osc_ucx_component.wpool, &base, size, &data_memh,
@@ -891,37 +940,41 @@ select_unlock:
     }
 
     /* allocate and register state memory */
-    ompi_osc_ucx_state_t *state_base = malloc(sizeof(ompi_osc_ucx_state_t));
+    //ompi_osc_ucx_state_t *state_base = malloc(sizeof(ompi_osc_ucx_state_t));
+    ompi_osc_ucx_state_t *state_base;
 
-    /* init window state */
-    state_base->lock = TARGET_LOCK_UNLOCKED;
-    state_base->post_index = 0;
-    memset((void *)state_base->post_state, 0, sizeof(uint64_t) * OMPI_OSC_UCX_POST_PEER_MAX);
-    state_base->complete_count = 0;
-    state_base->req_flag = 0;
-    state_base->acc_lock = TARGET_LOCK_UNLOCKED;
-    state_base->dynamic_win_count = 0;
+    /* register state memory */
+    if (need_state) {
+        ret = _comm_ucx_wpmem_map(mca_osc_ucx_component.wpool, (void**)&state_base,
+                                  sizeof(ompi_osc_ucx_state_t), &state_memh,
+                                  OPAL_COMMON_UCX_MEM_ALLOCATE_MAP);
 
-    /* register data memory */
-    ret = _comm_ucx_wpmem_map(mca_osc_ucx_component.wpool, (void**)&state_base,
-                              sizeof(ompi_osc_ucx_state_t), &state_memh,
-                              OPAL_COMMON_UCX_MEM_MAP);
-    if (ret != OPAL_SUCCESS) {
-        MCA_COMMON_UCX_VERBOSE(1, "_comm_ucx_mem_map failed: %d", ret);
-        ucp_rkey_buffer_release(data_rkey_addr);
-        ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, data_memh);
-        return OMPI_ERR_OUT_OF_RESOURCE;
-    }
+        /* init window state */
+        state_base->lock = TARGET_LOCK_UNLOCKED;
+        state_base->post_index = 0;
+        memset((void *)state_base->post_state, 0, sizeof(uint64_t) * OMPI_OSC_UCX_POST_PEER_MAX);
+        state_base->complete_count = 0;
+        state_base->req_flag = 0;
+        state_base->acc_lock = TARGET_LOCK_UNLOCKED;
+        state_base->dynamic_win_count = 0;
 
-    status = ucp_rkey_pack(mca_osc_ucx_component.wpool->ucp_ctx, state_memh,
-                           &state_rkey_addr, &state_rkey_addr_len);
+        if (ret != OPAL_SUCCESS) {
+            MCA_COMMON_UCX_VERBOSE(1, "_comm_ucx_mem_map failed: %d", ret);
+            ucp_rkey_buffer_release(data_rkey_addr);
+            ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, data_memh);
+            return OMPI_ERR_OUT_OF_RESOURCE;
+        }
 
-    if (status != UCS_OK) {
-        MCA_COMMON_UCX_VERBOSE(1, "ucp_rkey_pack failed: %d", status);
-        ucp_rkey_buffer_release(data_rkey_addr);
-        ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, data_memh);
-        ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, state_memh);
-        return OMPI_ERR_OUT_OF_RESOURCE;
+        status = ucp_rkey_pack(mca_osc_ucx_component.wpool->ucp_ctx, state_memh,
+                              &state_rkey_addr, &state_rkey_addr_len);
+
+        if (status != UCS_OK) {
+            MCA_COMMON_UCX_VERBOSE(1, "ucp_rkey_pack failed: %d", status);
+            ucp_rkey_buffer_release(data_rkey_addr);
+            ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, data_memh);
+            ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, state_memh);
+            return OMPI_ERR_OUT_OF_RESOURCE;
+        }
     }
 
     /* now compute the size we need */
@@ -941,32 +994,46 @@ select_unlock:
     size_t handle_size = sizeof(ompi_memhandle_t) + sizeof(ompi_osc_ucx_memhandle_t)
                          + mca_osc_ucx_component.wpool->recv_waddr_len
                          + data_rkey_addr_len
-                         + state_rkey_addr_len
-                         + sizeof(ucp_mem_h)*2 // need to store the local memory handle for cleanup
+                         + sizeof(ucp_mem_h) // need to store the local memory handle for cleanup
                          ;
+    if (need_state) {
+        handle_size += state_rkey_addr_len + sizeof(ucp_mem_h);
+    }
 
     ompi_memhandle_t *ompi_handle = malloc(handle_size);
     /* set the component name */
     strncpy(ompi_handle->osc_component, mca_osc_ucx_component.super.osc_version.mca_component_name, sizeof(ompi_handle->osc_component));
     ompi_osc_ucx_memhandle_t *ucx_handle = (ompi_osc_ucx_memhandle_t*)ompi_handle->reghandle;
     ucx_handle->recv_worker_addr_len = mca_osc_ucx_component.wpool->recv_waddr_len;
+    if (data_rkey_addr_len > UINT16_MAX || state_rkey_addr_len > UINT16_MAX) {
+        printf("WARN: UCX rkeys are too large for this implementation!\n");
+        ucp_rkey_buffer_release(data_rkey_addr);
+        ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, data_memh);
+        ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, state_memh);
+        return OMPI_ERR_NOT_SUPPORTED;
+    }
+    ucx_handle->flags = 0;
     ucx_handle->data_rkey_size = data_rkey_addr_len;
+    ucx_handle->state_rkey_size = state_rkey_addr_len;
     ucx_handle->data_addr = (uint64_t)base;
     ucx_handle->state_addr = (uint64_t)state_base;
-    assert(state_rkey_addr_len == data_rkey_addr_len);
     size_t offset = 0;
     memcpy(ucx_handle->_data, mca_osc_ucx_component.wpool->recv_waddr, ucx_handle->recv_worker_addr_len);
     offset += ucx_handle->recv_worker_addr_len;
     memcpy(ucx_handle->_data + offset, data_rkey_addr, data_rkey_addr_len);
     offset += ucx_handle->data_rkey_size;
-    memcpy(ucx_handle->_data + offset, state_rkey_addr, state_rkey_addr_len);
-    offset += ucx_handle->data_rkey_size;
     memcpy(ucx_handle->_data + offset, &data_memh, sizeof(data_memh));
-    offset += sizeof(data_memh);
-    memcpy(ucx_handle->_data + offset, &state_memh, sizeof(state_memh));
-
-    ucp_rkey_buffer_release(state_rkey_addr);
     ucp_rkey_buffer_release(data_rkey_addr);
+
+    if (need_state) {
+        offset += sizeof(data_memh);
+        memcpy(ucx_handle->_data + offset, state_rkey_addr, state_rkey_addr_len);
+        offset += ucx_handle->state_rkey_size;
+        memcpy(ucx_handle->_data + offset, &state_memh, sizeof(state_memh));
+
+        ucx_handle->flags |= OSC_MEMHANDLE_HAS_STATE;
+        ucp_rkey_buffer_release(state_rkey_addr);
+    }
 
     *memhandle      = ompi_handle;
     *memhandle_size = handle_size;
@@ -984,15 +1051,17 @@ int component_release_memhandle(ompi_memhandle_t *memhandle)
     data_rkey_addr = ucx_handle->_data + ucx_handle->recv_worker_addr_len;
 
     size_t memh_offset = mca_osc_ucx_component.wpool->recv_waddr_len
-                         + ucx_handle->data_rkey_size*2;
+                         + ucx_handle->data_rkey_size;
 
     /* Unmap data segment */
     ucp_mem_h data_mem_h = *(ucp_mem_h*)(ucx_handle->_data + memh_offset);
     ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, data_mem_h);
-    memh_offset += sizeof(ucp_mem_h);
-    ucp_mem_h state_mem_h = *(ucp_mem_h*)(ucx_handle->_data + memh_offset);
-    /* Unmap state segment */
-    ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, state_mem_h);
+    if (ucx_handle->flags & OSC_MEMHANDLE_HAS_STATE) {
+        memh_offset += ucx_handle->state_rkey_size + sizeof(ucp_mem_h);
+        ucp_mem_h state_mem_h = *(ucp_mem_h*)(ucx_handle->_data + memh_offset);
+        /* Unmap state segment */
+        ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, state_mem_h);
+    }
 
     /* Free the handle we allocated */
     free(memhandle);
@@ -1110,7 +1179,16 @@ int ompi_osc_ucx_free(struct ompi_win_t *win) {
     ompi_osc_ucx_module_t *module = (ompi_osc_ucx_module_t*) win->w_osc_module;
     int ret = OMPI_SUCCESS;
 
-    assert(module->lock_count == 0);
+    if (module->flavor == MPI_WIN_FLAVOR_MEMHANDLE) {
+        opal_common_ucx_wpctx_release(module->ctx);
+        module->ctx = NULL;
+        opal_fifo_push(&module_free_list, &module->free_list_item);
+        return OMPI_SUCCESS;
+    }
+
+    if (!module->always_lock_shared) {
+        assert(module->lock_count == 0);
+    }
     assert(opal_list_is_empty(&module->pending_posts) == true);
     if(!module->no_locks) {
         OBJ_DESTRUCT(&module->outstanding_locks);

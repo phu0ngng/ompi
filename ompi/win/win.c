@@ -372,10 +372,17 @@ int ompi_win_from_memhandle(ompi_memhandle_t *memhandle, size_t size,
 
     ret  = ompi_osc_base_pick(win, size, disp_unit, target, comm, info, MPI_WIN_FLAVOR_MEMHANDLE, &model, memhandle);
 
-    ret = config_window(MPI_BOTTOM, 0, 1, MPI_WIN_FLAVOR_MEMHANDLE, model, win);
-    if (OMPI_SUCCESS != ret) {
-        OBJ_RELEASE(win);
-        return ret;
+    bool no_attr = true;
+    int flag;
+    opal_info_get_bool(info, "mpi_win_no_attr", &no_attr, &flag);
+
+
+    if (!(flag && no_attr)) {
+        ret = config_window(MPI_BOTTOM, 0, 1, MPI_WIN_FLAVOR_MEMHANDLE, model, win);
+        if (OMPI_SUCCESS != ret) {
+            OBJ_RELEASE(win);
+            return ret;
+        }
     }
 
     *newwin = win;
@@ -386,11 +393,12 @@ int ompi_win_from_memhandle(ompi_memhandle_t *memhandle, size_t size,
 
 
 int ompi_memhandle_create(void *base, size_t size,
+                          opal_info_t *info,
                           ompi_communicator_t *comm,
                           ompi_memhandle_t **memhandle,
                           int *memhandle_size)
 {
-    return ompi_osc_base_get_memhandle(base, size, comm, memhandle, memhandle_size);
+    return ompi_osc_base_get_memhandle(base, size, info, comm, memhandle, memhandle_size);
 }
 
 int ompi_memhandle_release(ompi_memhandle_t *memhandle)

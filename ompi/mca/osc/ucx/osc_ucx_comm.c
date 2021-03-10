@@ -52,10 +52,12 @@ static inline int check_sync_state(ompi_osc_ucx_module_t *module, int target,
                 return OMPI_ERR_RMA_SYNC;
             }
         } else if (module->epoch_type.access == PASSIVE_EPOCH) {
-            ompi_osc_ucx_lock_t *item = NULL;
-            opal_hash_table_get_value_uint32(&module->outstanding_locks, (uint32_t) target, (void **) &item);
-            if (item == NULL) {
-                return OMPI_ERR_RMA_SYNC;
+            if (!module->always_lock_shared) {
+                ompi_osc_ucx_lock_t *item = NULL;
+                opal_hash_table_get_value_uint32(&module->outstanding_locks, (uint32_t) target, (void **) &item);
+                if (item == NULL) {
+                    return OMPI_ERR_RMA_SYNC;
+                }
             }
         }
     } else {
