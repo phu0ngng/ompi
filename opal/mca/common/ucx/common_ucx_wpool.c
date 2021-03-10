@@ -326,9 +326,11 @@ static opal_common_ucx_winfo_t *_wpool_get_winfo(opal_common_ucx_wpool_t *wpool,
         }
     }
 
-    winfo->endpoints = calloc(comm_size, sizeof(ucp_ep_h));
-    winfo->inflight_ops = calloc(comm_size, sizeof(short));
-    winfo->comm_size = comm_size;
+    if (NULL == winfo->endpoints) {
+        winfo->endpoints = calloc(comm_size, sizeof(ucp_ep_h));
+        winfo->inflight_ops = calloc(comm_size, sizeof(short));
+        winfo->comm_size = comm_size;
+    }
 
     /* Put the worker on the active list */
     _wpool_list_put(wpool, &wpool->active_workers, winfo);
