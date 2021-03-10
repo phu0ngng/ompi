@@ -314,6 +314,20 @@ static char* ompi_osc_ucx_set_no_lock_info(opal_infosubscriber_t *obj, char *key
     return module->no_locks ? "true" : "false";
 }
 
+static int comm_delete_attr_delete_function(
+    MPI_Comm comm,
+    int comm_keyval,
+    void *attribute_val,
+    void *extra_state)
+{
+    (void)comm; (void)comm_keyval; (void)extra_state;
+    opal_common_ucx_wpool_t* wpool = (opal_common_ucx_wpool_t*)attribute_val;
+    opal_common_ucx_wpool_finalize(wpool);
+    return MPI_SUCCESS;
+}
+
+static int comm_wpool_key;
+
 static int initialize_env()
 {
     int ret;
@@ -343,6 +357,9 @@ static int initialize_env()
     }
 
     OBJ_CONSTRUCT(&module_free_list, opal_fifo_t);
+
+    PMPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN, &comm_delete_attr_delete_function,
+                            &comm_wpool_key, NULL);
 
     /* Make sure that all memory updates performed above are globally
       * observable before (mca_osc_ucx_component.env_initialized = true)
@@ -633,6 +650,22 @@ static int component_pick(struct ompi_win_t *win, size_t size, int disp_unit, in
         }
     }
 
+    int flag;
+    opal_common_ucx_wpool_t* wpool = NULL;
+
+    PMPI_Comm_get_attr(comm, comm_wpool_key, &wpool, &flag);
+
+    if (!flag) {
+        wpool = calloc(1, sizeof(*wpool));
+        ret = opal_common_ucx_wpool_init(wpool,
+                                         ompi_proc_world_size(),
+                                         mca_osc_ucx_component.enable_mpi_threads);
+        if (OMPI_SUCCESS != ret) {
+            OSC_UCX_VERBOSE(1, "opal_common_ucx_wpool_init failed: %d", ret);
+            return OMPI_ERR_OUT_OF_RESOURCE;
+        }
+        PMPI_Comm_set_attr(comm, comm_wpool_key, wpool);
+    }
 select_unlock:
     _osc_ucx_init_unlock();
     if (ret) {
@@ -703,7 +736,7 @@ select_unlock:
     }
 
 
-    ret = opal_common_ucx_wpctx_create(mca_osc_ucx_component.wpool, comm_size,
+    ret = opal_common_ucx_wpctx_create(wpool, comm_size,
                                       NULL, NULL,
                                       &module->ctx);
     if (OMPI_SUCCESS != ret) {
@@ -862,7 +895,7 @@ error:
 
 error_nomem:
     if (env_initialized == true) {
-        opal_common_ucx_wpool_finalize(mca_osc_ucx_component.wpool);
+        opal_common_ucx_wpool_finalize(wpool);
         OBJ_DESTRUCT(&mca_osc_ucx_component.requests);
         mca_osc_ucx_component.env_initialized = false;
     }
