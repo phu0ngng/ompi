@@ -405,7 +405,9 @@ OPAL_DECLSPEC void opal_common_ucx_wpctx_release(opal_common_ucx_ctx_t *ctx)
     }
 
     free(ctx->recv_worker_addrs);
+    ctx->recv_worker_addrs = NULL;
     free(ctx->recv_worker_displs);
+    ctx->recv_worker_displs = NULL;
 
     OBJ_DESTRUCT(&ctx->mutex);
     OBJ_DESTRUCT(&ctx->ctx_records);
@@ -643,8 +645,8 @@ static int _tlocal_ctx_connect(_ctx_record_t *ctx_rec, int target)
     ep_params.field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS;
 
     opal_mutex_lock(&winfo->mutex);
-    displ = gctx->recv_worker_displs[target];
-    ep_params.address = (ucp_address_t *) &(gctx->recv_worker_addrs[displ]);
+    displ = (NULL == gctx->recv_worker_displs) ? 0 : gctx->recv_worker_displs[target];
+    ep_params.address = (ucp_address_t *)&(gctx->recv_worker_addrs[displ]);
     status = ucp_ep_create(winfo->worker, &ep_params, &winfo->endpoints[target]);
     if (status != UCS_OK) {
         opal_mutex_unlock(&winfo->mutex);
@@ -716,7 +718,7 @@ static _mem_record_t *_tlocal_add_mem_rec(opal_common_ucx_wpmem_t *mem, _ctx_rec
 static int _tlocal_mem_create_rkey(_mem_record_t *mem_rec, ucp_ep_h ep, int target)
 {
     opal_common_ucx_wpmem_t *gmem = mem_rec->gmem;
-    int displ = gmem->mem_displs[target];
+    int displ = (NULL == gmem->mem_displs) ? 0 : gmem->mem_displs[target];
     ucs_status_t status;
 
     opal_mutex_lock(&mem_rec->winfo->mutex);

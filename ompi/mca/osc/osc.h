@@ -166,6 +166,7 @@ typedef int (*ompi_osc_base_component_pick_fn_t)(struct ompi_win_t *win,
 
 typedef int (*ompi_osc_base_component_get_memhandle_fn_t)(void *base,
                                                  size_t size,
+                                                 struct opal_info_t *info,
                                                  struct ompi_communicator_t *comm,
                                                  struct ompi_memhandle_t **memhandle,
                                                  int *memhandle_size);

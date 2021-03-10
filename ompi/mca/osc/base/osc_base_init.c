@@ -144,6 +144,7 @@ int
 ompi_osc_base_get_memhandle(
                    void *base,
                    size_t size,
+                   struct opal_info_t *info,
                    ompi_communicator_t *comm,
                    ompi_memhandle_t **memhandle,
                    int *memhandle_size)
@@ -177,7 +178,7 @@ ompi_osc_base_get_memhandle(
 
     if (NULL == best_component) return OMPI_ERR_NOT_SUPPORTED;
 
-    best_component->osc_get_memhandle(base, size, comm, memhandle, memhandle_size);
+    best_component->osc_get_memhandle(base, size, info, comm, memhandle, memhandle_size);
 }
 
 int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle)

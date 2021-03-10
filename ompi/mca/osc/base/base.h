@@ -62,6 +62,7 @@ int
 ompi_osc_base_get_memhandle(
                    void *base,
                    size_t size,
+                   struct opal_info_t *info,
                    ompi_communicator_t *comm,
                    ompi_memhandle_t **memhandle,
                    int *memhandle_size);

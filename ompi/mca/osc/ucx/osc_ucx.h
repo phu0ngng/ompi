@@ -93,6 +93,7 @@ typedef struct ompi_osc_ucx_state {
 
 typedef struct ompi_osc_ucx_module {
     ompi_osc_base_module_t super;
+    opal_list_item_t free_list_item;
     struct ompi_communicator_t *comm;
     int flavor;
     size_t size;
@@ -117,6 +118,7 @@ typedef struct ompi_osc_ucx_module {
     bool lock_all_is_nocheck;
     bool no_locks;
     bool acc_single_intrinsic;
+    bool always_lock_shared;
     opal_common_ucx_ctx_t *ctx;
     opal_common_ucx_wpmem_t *mem;
     opal_common_ucx_wpmem_t *state_mem;
@@ -135,12 +137,18 @@ typedef struct ompi_osc_ucx_lock {
 } ompi_osc_ucx_lock_t;
 
 typedef struct ompi_osc_ucx_memhandle_t {
-    int recv_worker_addr_len;  // length of the worker address string in _data
-    int data_rkey_size;             // size of the rkey
-    uint64_t data_addr;        // remote address of the data
-    uint64_t state_addr;       // remote address of the state data
-    char _data[];              // the handle data: [worker_addr|data_rkey|state_rkey]
+    int16_t recv_worker_addr_len;   // length of the worker address string in _data
+    int16_t data_rkey_size;         // size of the data rkey
+    int16_t state_rkey_size;        // size of the stat rkey
+    int16_t flags;
+    uint64_t data_addr;             // remote address of the data
+    uint64_t state_addr;            // remote address of the state data
+    char _data[];                   // the handle data: [worker_addr|data_rkey|state_rkey]
 } ompi_osc_ucx_memhandle_t;
+
+enum {
+    OSC_MEMHANDLE_HAS_STATE = 0x1    // the memhandle does not contain state information, i.e., no locking is possible
+};
 
 #define OSC_UCX_GET_EP(comm_, rank_) (ompi_comm_peer_lookup(comm_, rank_)->proc_endpoints[OMPI_PROC_ENDPOINT_TAG_UCX])
 #define OSC_UCX_GET_DISP(module_, rank_) ((module_->disp_unit < 0) ? module_->disp_units[rank_] : module_->disp_unit)
