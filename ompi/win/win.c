@@ -393,12 +393,12 @@ int ompi_win_from_memhandle(ompi_memhandle_t *memhandle, size_t size,
 
 
 int ompi_memhandle_create(void *base, size_t size,
-                          opal_info_t *info,
+                          ompi_info_t *info,
                           ompi_communicator_t *comm,
                           ompi_memhandle_t **memhandle,
                           int *memhandle_size)
 {
-    return ompi_osc_base_get_memhandle(base, size, info, comm, memhandle, memhandle_size);
+    return ompi_osc_base_get_memhandle(base, size, &info->super, comm, memhandle, memhandle_size);
 }
 
 int ompi_memhandle_release(ompi_memhandle_t *memhandle)
