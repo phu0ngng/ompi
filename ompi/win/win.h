@@ -130,7 +130,8 @@ typedef struct ompi_predefined_win_t ompi_predefined_win_t;
 
 struct ompi_memhandle_t
 {
-    char osc_component[16]; // OSC components are short, limit to 16 chars
+    // TODO: we don't really need this field anymore, but the struct cannot empty either...
+    char osc_component[8]; // OSC components are short, limit to 16 chars
     char reghandle[]; // holds the underlying registration information
 };
 

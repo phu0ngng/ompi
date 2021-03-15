@@ -137,12 +137,12 @@ typedef struct ompi_osc_ucx_lock {
 } ompi_osc_ucx_lock_t;
 
 typedef struct ompi_osc_ucx_memhandle_t {
+    uint64_t data_addr;             // remote address of the data
+    uint64_t state_addr;            // remote address of the state data
     //int16_t recv_worker_addr_len;   // length of the worker address string in _data
     int16_t data_rkey_size;         // size of the data rkey
     int16_t state_rkey_size;        // size of the stat rkey
     int16_t flags;
-    uint64_t data_addr;             // remote address of the data
-    uint64_t state_addr;            // remote address of the state data
     char _data[];                   // the handle data: [worker_addr|data_rkey|state_rkey]
 } ompi_osc_ucx_memhandle_t;
 
@@ -209,16 +209,16 @@ int ompi_osc_ucx_rget_accumulate(const void *origin_addr, int origin_count,
                                  struct ompi_op_t *op, struct ompi_win_t *win,
                                  struct ompi_request_t **request);
 
-int ompi_osc_ucx_fence(int mpi_assert, struct ompi_win_t *win);
-int ompi_osc_ucx_start(struct ompi_group_t *group, int mpi_assert, struct ompi_win_t *win);
+int ompi_osc_ucx_fence(int assert, struct ompi_win_t *win);
+int ompi_osc_ucx_start(struct ompi_group_t *group, int assert, struct ompi_win_t *win);
 int ompi_osc_ucx_complete(struct ompi_win_t *win);
-int ompi_osc_ucx_post(struct ompi_group_t *group, int mpi_assert, struct ompi_win_t *win);
+int ompi_osc_ucx_post(struct ompi_group_t *group, int assert, struct ompi_win_t *win);
 int ompi_osc_ucx_wait(struct ompi_win_t *win);
 int ompi_osc_ucx_test(struct ompi_win_t *win, int *flag);
 
-int ompi_osc_ucx_lock(int lock_type, int target, int mpi_assert, struct ompi_win_t *win);
+int ompi_osc_ucx_lock(int lock_type, int target, int assert, struct ompi_win_t *win);
 int ompi_osc_ucx_unlock(int target, struct ompi_win_t *win);
-int ompi_osc_ucx_lock_all(int mpi_assert, struct ompi_win_t *win);
+int ompi_osc_ucx_lock_all(int assert, struct ompi_win_t *win);
 int ompi_osc_ucx_unlock_all(struct ompi_win_t *win);
 int ompi_osc_ucx_sync(struct ompi_win_t *win);
 int ompi_osc_ucx_flush(int target, struct ompi_win_t *win);

@@ -273,7 +273,7 @@ static void ompi_osc_ucx_unregister_progress()
     _osc_ucx_init_unlock();
 }
 
-static const char* ompi_osc_ucx_set_no_lock_info(opal_infosubscriber_t *obj, const char *key, const char *value)
+static char* ompi_osc_ucx_set_no_lock_info(opal_infosubscriber_t *obj, char *key, char *value)
 {
 
     struct ompi_win_t *win = (struct ompi_win_t*) obj;
@@ -767,15 +767,26 @@ select_unlock:
     void *state_rkey_addr = (ucx_memhandle->_data + ucx_memhandle->data_rkey_size);
 
 
+    static int prev_data_rkey_size = 0;
+    static int prev_state_rkey_size = 0;
+
     /** TODO: this is assuming that the rkey for data and state is always the same! */
     if (NULL == module->mem->mem_addrs) {
         module->mem->mem_addrs = malloc(ucx_memhandle->data_rkey_size);
+        prev_data_rkey_size = ucx_memhandle->data_rkey_size;
     }
     memcpy(module->mem->mem_addrs, data_rkey_addr, ucx_memhandle->data_rkey_size);
 
-    if (NULL == module->state_mem->mem_addrs) {
+    if (NULL == module->state_mem->mem_addrs && ucx_memhandle->state_rkey_size > 0) {
         module->state_mem->mem_addrs = malloc(ucx_memhandle->state_rkey_size);
+        prev_state_rkey_size = ucx_memhandle->state_rkey_size;
     }
+
+    if (prev_data_rkey_size != ucx_memhandle->data_rkey_size || prev_state_rkey_size < ucx_memhandle->state_rkey_size) {
+        printf("WARN: previous rkey size does not match current rkey size: %d vs %d, %d vs %d\n",
+               prev_data_rkey_size, ucx_memhandle->data_rkey_size, prev_state_rkey_size, ucx_memhandle->state_rkey_size);
+    }
+
     memcpy(module->state_mem->mem_addrs, state_rkey_addr, ucx_memhandle->state_rkey_size);
 
     if (module->always_lock_shared) {
