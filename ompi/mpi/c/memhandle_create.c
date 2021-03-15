@@ -64,17 +64,13 @@ int MPIX_Memhandle_create(void *base, MPI_Aint size, MPI_Info info, MPI_Win pare
         }
     }
 
-    OPAL_CR_ENTER_LIBRARY();
-
     /* create window and return */
     ret = ompi_memhandle_create(base, (size_t)size, info, parentwin, memhandle, memhandle_size);
     if (OMPI_SUCCESS != ret) {
         printf("ompi_memhandle_create failed!\n");
         *memhandle = MPI_MEMHANDLE_NULL;
-        OPAL_CR_EXIT_LIBRARY();
         return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_WIN, FUNC_NAME);
     }
 
-    OPAL_CR_EXIT_LIBRARY();
     return MPI_SUCCESS;
 }

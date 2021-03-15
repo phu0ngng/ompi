@@ -70,16 +70,12 @@ int MPIX_Win_from_memhandle(MPI_Memhandle memhandle, MPI_Aint size, int disp_uni
         }
     }
 
-    OPAL_CR_ENTER_LIBRARY();
-
     /* create window and return */
     ret = ompi_win_from_memhandle(memhandle, size, disp_unit, &info->super, target, parentwin, newwin);
     if (OMPI_SUCCESS != ret) {
         *newwin = MPI_WIN_NULL;
-        OPAL_CR_EXIT_LIBRARY();
         return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_WIN, FUNC_NAME);
     }
 
-    OPAL_CR_EXIT_LIBRARY();
     return MPI_SUCCESS;
 }

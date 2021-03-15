@@ -56,18 +56,13 @@ int MPIX_Memhandle_release(MPI_Memhandle *memhandle, MPI_Win parentwin)
         }
     }
 
-
-    OPAL_CR_ENTER_LIBRARY();
-
     /* create window and return */
     ret = ompi_memhandle_release(*memhandle, parentwin);
     if (OMPI_SUCCESS != ret) {
-        OPAL_CR_EXIT_LIBRARY();
         return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_WIN, FUNC_NAME);
     }
 
     *memhandle = MPI_MEMHANDLE_NULL;
 
-    OPAL_CR_EXIT_LIBRARY();
     return MPI_SUCCESS;
 }
