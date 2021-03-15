@@ -20,7 +20,7 @@ OBJ_CLASS_INSTANCE(ompi_osc_ucx_lock_t, opal_object_t, NULL, NULL);
 
 static inline int start_shared(ompi_osc_ucx_module_t *module, int target) {
     uint64_t result_value = -1;
-    uint64_t remote_addr = (module->state_addrs)[target] + OSC_UCX_STATE_LOCK_OFFSET;
+    uint64_t remote_addr = ompi_osc_ucx_get_target_state_base(module, target) + OSC_UCX_STATE_LOCK_OFFSET;
     int ret = OMPI_SUCCESS;
 
     while (true) {
@@ -49,14 +49,14 @@ static inline int start_shared(ompi_osc_ucx_module_t *module, int target) {
 }
 
 static inline int end_shared(ompi_osc_ucx_module_t *module, int target) {
-    uint64_t remote_addr = (module->state_addrs)[target] + OSC_UCX_STATE_LOCK_OFFSET;
+    uint64_t remote_addr = ompi_osc_ucx_get_target_state_base(module, target) + OSC_UCX_STATE_LOCK_OFFSET;
     return opal_common_ucx_wpmem_post(module->state_mem, UCP_ATOMIC_POST_OP_ADD,
                                     (-1), target, sizeof(uint64_t), remote_addr);
 }
 
 static inline int start_exclusive(ompi_osc_ucx_module_t *module, int target) {
     uint64_t result_value = -1;
-    uint64_t remote_addr = (module->state_addrs)[target] + OSC_UCX_STATE_LOCK_OFFSET;
+    uint64_t remote_addr = ompi_osc_ucx_get_target_state_base(module, target) + OSC_UCX_STATE_LOCK_OFFSET;
     int ret = OMPI_SUCCESS;
 
     for (;;) {
@@ -75,7 +75,7 @@ static inline int start_exclusive(ompi_osc_ucx_module_t *module, int target) {
 }
 
 static inline int end_exclusive(ompi_osc_ucx_module_t *module, int target) {
-    uint64_t remote_addr = (module->state_addrs)[target] + OSC_UCX_STATE_LOCK_OFFSET;
+    uint64_t remote_addr = ompi_osc_ucx_get_target_state_base(module, target) + OSC_UCX_STATE_LOCK_OFFSET;
     return opal_common_ucx_wpmem_post(module->state_mem, UCP_ATOMIC_POST_OP_ADD,
                                       -((int64_t)TARGET_LOCK_EXCLUSIVE), target,
                                       sizeof(uint64_t), remote_addr);

@@ -42,47 +42,42 @@ static const char FUNC_NAME[] = "MPIX_Win_from_memhandle";
 
 
 int MPIX_Win_from_memhandle(MPI_Memhandle memhandle, MPI_Aint size, int disp_unit,
-                           MPI_Info info, int target, MPI_Comm comm, MPI_Win *newwin)
+                           MPI_Info info, int target, MPI_Win parentwin, MPI_Win *newwin)
 {
     int ret = MPI_SUCCESS;
 
     MEMCHECKER(
-        memchecker_comm(comm);
+        memchecker_win(parentwin);
     );
     /* argument checking */
     if (MPI_PARAM_CHECK) {
         OMPI_ERR_INIT_FINALIZE(FUNC_NAME);
 
-        if (ompi_comm_invalid (comm)) {
+        if (ompi_win_invalid (parentwin)) {
             return OMPI_ERRHANDLER_NOHANDLE_INVOKE(MPI_ERR_COMM,
                                           FUNC_NAME);
 
         } else if (NULL == info || ompi_info_is_freed(info)) {
-            return OMPI_ERRHANDLER_INVOKE(comm, MPI_ERR_INFO,
+            return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_INFO,
                                           FUNC_NAME);
 
         } else if (NULL == newwin) {
-            return OMPI_ERRHANDLER_INVOKE(comm, MPI_ERR_WIN, FUNC_NAME);
+            return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_WIN, FUNC_NAME);
         } else if ( size < 0 ) {
-            return OMPI_ERRHANDLER_INVOKE(comm, MPI_ERR_SIZE, FUNC_NAME);
+            return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_SIZE, FUNC_NAME);
         } else if ( disp_unit <= 0 ) {
-            return OMPI_ERRHANDLER_INVOKE(comm, MPI_ERR_DISP, FUNC_NAME);
+            return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_DISP, FUNC_NAME);
         }
-    }
-
-    /* communicator must be an intracommunicator */
-    if (OMPI_COMM_IS_INTER(comm)) {
-        return OMPI_ERRHANDLER_INVOKE(comm, MPI_ERR_COMM, FUNC_NAME);
     }
 
     OPAL_CR_ENTER_LIBRARY();
 
     /* create window and return */
-    ret = ompi_win_from_memhandle(memhandle, size, disp_unit, &info->super, target, comm, newwin);
+    ret = ompi_win_from_memhandle(memhandle, size, disp_unit, &info->super, target, parentwin, newwin);
     if (OMPI_SUCCESS != ret) {
         *newwin = MPI_WIN_NULL;
         OPAL_CR_EXIT_LIBRARY();
-        return OMPI_ERRHANDLER_INVOKE(comm, MPI_ERR_WIN, FUNC_NAME);
+        return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_WIN, FUNC_NAME);
     }
 
     OPAL_CR_EXIT_LIBRARY();

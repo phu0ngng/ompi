@@ -48,26 +48,27 @@ int ompi_osc_base_select(ompi_win_t *win,
 
 
 int
-ompi_osc_base_pick(ompi_win_t *win,
-                   size_t size,
-                   int disp_unit,
-                   int target,
-                   ompi_communicator_t *comm,
-                   opal_info_t *info,
-                   int flavor,
-                   int *model,
-                   ompi_memhandle_t *memhandle);
+ompi_osc_base_from_memhandle(ompi_win_t *win,
+                             size_t size,
+                             int disp_unit,
+                             int target,
+                             ompi_win_t *parentwin,
+                             opal_info_t *info,
+                             int flavor,
+                             int *model,
+                             ompi_memhandle_t *memhandle);
 
 int
 ompi_osc_base_get_memhandle(
                    void *base,
                    size_t size,
                    struct opal_info_t *info,
-                   ompi_communicator_t *comm,
+                   ompi_win_t *parentwin,
                    ompi_memhandle_t **memhandle,
                    int *memhandle_size);
 
-int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle);
+int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle,
+                                    struct ompi_win_t *parentwin);
 
 int ompi_osc_base_finalize(void);
 

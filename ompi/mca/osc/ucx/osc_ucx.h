@@ -137,7 +137,7 @@ typedef struct ompi_osc_ucx_lock {
 } ompi_osc_ucx_lock_t;
 
 typedef struct ompi_osc_ucx_memhandle_t {
-    int16_t recv_worker_addr_len;   // length of the worker address string in _data
+    //int16_t recv_worker_addr_len;   // length of the worker address string in _data
     int16_t data_rkey_size;         // size of the data rkey
     int16_t state_rkey_size;        // size of the stat rkey
     int16_t flags;
@@ -226,8 +226,40 @@ int ompi_osc_ucx_flush_all(struct ompi_win_t *win);
 int ompi_osc_ucx_flush_local(int target, struct ompi_win_t *win);
 int ompi_osc_ucx_flush_local_all(struct ompi_win_t *win);
 
+
+int ompi_osc_ucx_from_memhandle(
+    struct ompi_win_t *win, size_t size, int disp_unit, int target,
+    struct ompi_win_t *parentwin, struct opal_info_t *info,
+    ompi_memhandle_t *memhandle, int *model);
+int ompi_osc_ucx_get_memhandle(void *base,
+                               size_t size,
+                               struct opal_info_t *info,
+                               struct ompi_win_t *parentwin,
+                               ompi_memhandle_t **memhandle,
+                               int *memhandle_size);
+
+int ompi_osc_ucx_release_memhandle(ompi_memhandle_t *memhandle,
+                                   struct ompi_win_t *parentwin);
+
 int ompi_osc_find_attached_region_position(ompi_osc_dynamic_win_info_t *dynamic_wins,
                                            int min_index, int max_index,
                                            uint64_t base, size_t len, int *insert);
+
+static inline
+uint64_t ompi_osc_ucx_get_target_base(
+    ompi_osc_ucx_module_t *module,
+    int                    target)
+{
+    return (MPI_WIN_FLAVOR_MEMHANDLE == module->flavor) ? (uint64_t)module->addrs : module->addrs[target];
+}
+
+static inline
+uint64_t ompi_osc_ucx_get_target_state_base(
+    ompi_osc_ucx_module_t *module,
+    int                    target)
+{
+    return (MPI_WIN_FLAVOR_MEMHANDLE == module->flavor) ? (uint64_t)module->state_addrs : module->state_addrs[target];
+}
+
 
 #endif /* OMPI_OSC_UCX_H */

@@ -91,16 +91,17 @@ ompi_osc_base_select(ompi_win_t *win,
 
 
 int
-ompi_osc_base_pick(ompi_win_t *win,
-                   size_t size,
-                   int disp_unit,
-                   int target,
-                   ompi_communicator_t *comm,
-                   opal_info_t *info,
-                   int flavor,
-                   int *model,
-                   ompi_memhandle_t *memhandle)
+ompi_osc_base_from_memhandle(ompi_win_t *win,
+                            size_t size,
+                            int disp_unit,
+                            int target,
+                            ompi_win_t *parentwin,
+                            opal_info_t *info,
+                            int flavor,
+                            int *model,
+                            ompi_memhandle_t *memhandle)
 {
+#if 0
     opal_list_item_t *item;
     ompi_osc_base_component_t *best_component = NULL;
 
@@ -137,6 +138,13 @@ ompi_osc_base_pick(ompi_win_t *win,
                          best_component->osc_version.mca_component_name );
 
     return best_component->osc_pick(win, size, disp_unit, target, comm, info, memhandle, model);
+#endif // 0
+
+    if (NULL == parentwin->w_osc_module->osc_from_memhandle) {
+        return OMPI_ERR_NOT_SUPPORTED;
+    }
+
+    return parentwin->w_osc_module->osc_from_memhandle(win, size, disp_unit, target, parentwin, info, memhandle, model);
 }
 
 
@@ -145,11 +153,11 @@ ompi_osc_base_get_memhandle(
                    void *base,
                    size_t size,
                    struct opal_info_t *info,
-                   ompi_communicator_t *comm,
+                   ompi_win_t *parentwin,
                    ompi_memhandle_t **memhandle,
                    int *memhandle_size)
 {
-
+#if 0
     opal_list_item_t *item;
     ompi_osc_base_component_t *best_component = NULL;
     int best_priority = -1, priority;
@@ -178,11 +186,20 @@ ompi_osc_base_get_memhandle(
 
     if (NULL == best_component) return OMPI_ERR_NOT_SUPPORTED;
 
-    best_component->osc_get_memhandle(base, size, info, comm, memhandle, memhandle_size);
+    //best_component->osc_get_memhandle(base, size, info, comm, memhandle, memhandle_size);
+#endif // 0
+
+    if (NULL == parentwin->w_osc_module->osc_get_memhandle) {
+        return OMPI_ERR_NOT_SUPPORTED;
+    }
+
+
+    return parentwin->w_osc_module->osc_get_memhandle(base, size, info, parentwin, memhandle, memhandle_size);
 }
 
-int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle)
+int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle, struct ompi_win_t *parentwin)
 {
+#if 0
     opal_list_item_t *item;
     ompi_osc_base_component_t *component = NULL;
 
@@ -219,4 +236,6 @@ int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle)
                          component->osc_version.mca_component_name );
 
     return component->osc_release_memhandle(memhandle);
+#endif // 0
+    return parentwin->w_osc_module->osc_release_memhandle(memhandle, parentwin);
 }

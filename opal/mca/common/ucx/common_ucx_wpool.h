@@ -63,6 +63,7 @@ typedef struct {
  * Context is bound to a particular Worker Pool object.
  */
 typedef struct {
+    opal_object_t super;
     opal_mutex_t mutex;
 
     /* the reference to a Worker pool this context belongs to*/
@@ -82,6 +83,9 @@ typedef struct {
     int *recv_worker_displs;
     size_t comm_size;
 } opal_common_ucx_ctx_t;
+
+OBJ_CLASS_DECLARATION(opal_common_ucx_ctx_t);
+
 
 /* Worker Pool memory (wpmem) is an object that represents a remotely accessible
  * distributed memory.

@@ -20,6 +20,9 @@
  *******************************************************************************
  ******************************************************************************/
 
+static void opal_common_ucx_wpctx_dtor(opal_common_ucx_ctx_t *ctx);
+
+OBJ_CLASS_INSTANCE(opal_common_ucx_ctx_t, opal_object_t, NULL, &opal_common_ucx_wpctx_dtor);
 OBJ_CLASS_INSTANCE(opal_common_ucx_winfo_t, opal_list_item_t, NULL, _winfo_destructor);
 OBJ_CLASS_INSTANCE(_ctx_record_t, opal_list_item_t, NULL, NULL);
 OBJ_CLASS_INSTANCE(_mem_record_t, opal_list_item_t, NULL, NULL);
@@ -360,6 +363,8 @@ OPAL_DECLSPEC int opal_common_ucx_wpctx_create(opal_common_ucx_wpool_t *wpool, i
                                                opal_common_ucx_ctx_t **ctx_ptr)
 {
     opal_common_ucx_ctx_t *ctx = calloc(1, sizeof(*ctx));
+    OBJ_CONSTRUCT(ctx, opal_common_ucx_ctx_t);
+
     int ret = OPAL_SUCCESS;
 
     OBJ_CONSTRUCT(&ctx->mutex, opal_mutex_t);
@@ -393,6 +398,7 @@ error:
 
 OPAL_DECLSPEC void opal_common_ucx_wpctx_release(opal_common_ucx_ctx_t *ctx)
 {
+
     _ctx_record_t *ctx_rec = NULL, *next;
 
     /* Application is expected to guarantee that no operation
@@ -413,8 +419,12 @@ OPAL_DECLSPEC void opal_common_ucx_wpctx_release(opal_common_ucx_ctx_t *ctx)
 
     OBJ_DESTRUCT(&ctx->mutex);
     OBJ_DESTRUCT(&ctx->ctx_records);
+}
 
-    free(ctx);
+OPAL_DECLSPEC void
+opal_common_ucx_wpctx_release(opal_common_ucx_ctx_t *ctx)
+{
+    OBJ_RELEASE(ctx);
 }
 
 /* -----------------------------------------------------------------------------

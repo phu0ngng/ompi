@@ -260,7 +260,7 @@ static inline int start_atomicity(
     int                    target,
     bool                  *lock_acquired) {
     uint64_t result_value = -1;
-    uint64_t remote_addr = (module->state_addrs)[target] + OSC_UCX_STATE_ACC_LOCK_OFFSET;
+    uint64_t remote_addr = ompi_osc_ucx_get_target_state_base(module, target) + OSC_UCX_STATE_ACC_LOCK_OFFSET;
     int ret = OMPI_SUCCESS;
 
     if (need_acc_lock(module, target)) {
@@ -293,7 +293,7 @@ static inline int end_atomicity(
     int                    target,
     bool                   lock_acquired,
     void                  *free_ptr) {
-    uint64_t remote_addr = (module->state_addrs)[target] + OSC_UCX_STATE_ACC_LOCK_OFFSET;
+    uint64_t remote_addr = ompi_osc_ucx_get_target_state_base(module, target) + OSC_UCX_STATE_ACC_LOCK_OFFSET;
     int ret = OMPI_SUCCESS;
 
     if (lock_acquired) {
@@ -328,7 +328,7 @@ static inline int end_atomicity(
 
 static inline int get_dynamic_win_info(uint64_t remote_addr, ompi_osc_ucx_module_t *module,
                                        int target) {
-    uint64_t remote_state_addr = (module->state_addrs)[target] + OSC_UCX_STATE_DYNAMIC_WIN_CNT_OFFSET;
+    uint64_t remote_state_addr = ompi_osc_ucx_get_target_state_base(module, target) + OSC_UCX_STATE_DYNAMIC_WIN_CNT_OFFSET;
     size_t len = sizeof(uint64_t) + sizeof(ompi_osc_dynamic_win_info_t) * OMPI_OSC_UCX_ATTACH_MAX;
     char *temp_buf = malloc(len);
     ompi_osc_dynamic_win_info_t *temp_dynamic_wins;
@@ -422,7 +422,7 @@ static int do_atomic_op_intrinsic(
     size_t origin_dt_bytes;
     ompi_datatype_type_size(dt, &origin_dt_bytes);
 
-    uint64_t remote_addr = (module->addrs[target]) + target_disp * OSC_UCX_GET_DISP(module, target);
+    uint64_t remote_addr = ompi_osc_ucx_get_target_base(module, target) + target_disp * OSC_UCX_GET_DISP(module, target);
 
     if (module->flavor == MPI_WIN_FLAVOR_DYNAMIC) {
         ret = get_dynamic_win_info(remote_addr, module, target);
@@ -487,7 +487,7 @@ int ompi_osc_ucx_put(const void *origin_addr, int origin_count, struct ompi_data
                      int target, ptrdiff_t target_disp, int target_count,
                      struct ompi_datatype_t *target_dt, struct ompi_win_t *win) {
     ompi_osc_ucx_module_t *module = (ompi_osc_ucx_module_t*) win->w_osc_module;
-    uint64_t remote_addr = (module->addrs[target]) + target_disp * OSC_UCX_GET_DISP(module, target);
+    uint64_t remote_addr = ompi_osc_ucx_get_target_base(module, target) + target_disp * OSC_UCX_GET_DISP(module, target);
     bool is_origin_contig = false, is_target_contig = false;
     ptrdiff_t origin_lb, origin_extent, target_lb, target_extent;
     int ret = OMPI_SUCCESS;
@@ -541,7 +541,7 @@ int ompi_osc_ucx_get(void *origin_addr, int origin_count,
                      int target, ptrdiff_t target_disp, int target_count,
                      struct ompi_datatype_t *target_dt, struct ompi_win_t *win) {
     ompi_osc_ucx_module_t *module = (ompi_osc_ucx_module_t*) win->w_osc_module;
-    uint64_t remote_addr = (module->addrs[target]) + target_disp * OSC_UCX_GET_DISP(module, target);
+    uint64_t remote_addr = ompi_osc_ucx_get_target_base(module, target) + target_disp * OSC_UCX_GET_DISP(module, target);
     ptrdiff_t origin_lb, origin_extent, target_lb, target_extent;
     bool is_origin_contig = false, is_target_contig = false;
     int ret = OMPI_SUCCESS;
@@ -773,7 +773,7 @@ int ompi_osc_ucx_compare_and_swap(const void *origin_addr, const void *compare_a
                                   int target, ptrdiff_t target_disp,
                                   struct ompi_win_t *win) {
     ompi_osc_ucx_module_t *module = (ompi_osc_ucx_module_t *)win->w_osc_module;
-    uint64_t remote_addr = (module->addrs[target]) + target_disp * OSC_UCX_GET_DISP(module, target);
+    uint64_t remote_addr = ompi_osc_ucx_get_target_base(module, target) + target_disp * OSC_UCX_GET_DISP(module, target);
     size_t dt_bytes;
     int ret = OMPI_SUCCESS;
     bool lock_acquired = false;
@@ -843,7 +843,7 @@ int ompi_osc_ucx_fetch_and_op(const void *origin_addr, void *result_addr,
         return ret;
     }
 
-    uint64_t remote_addr = (module->addrs[target]) + target_disp * OSC_UCX_GET_DISP(module, target);
+    uint64_t remote_addr = ompi_osc_ucx_get_target_base(module, target) + target_disp * OSC_UCX_GET_DISP(module, target);
     ompi_datatype_type_size(dt, &dt_bytes);
 
     /* UCX atomics are only supported on 32 and 64 bit values */
@@ -1051,7 +1051,7 @@ int ompi_osc_ucx_rput(const void *origin_addr, int origin_count,
                       struct ompi_datatype_t *target_dt,
                       struct ompi_win_t *win, struct ompi_request_t **request) {
     ompi_osc_ucx_module_t *module = (ompi_osc_ucx_module_t*) win->w_osc_module;
-    uint64_t remote_addr = (module->addrs[target]) + target_disp * OSC_UCX_GET_DISP(module, target);
+    uint64_t remote_addr = ompi_osc_ucx_get_target_base(module, target) + target_disp * OSC_UCX_GET_DISP(module, target);
     ompi_osc_ucx_request_t *ucx_req = NULL;
     int ret = OMPI_SUCCESS;
 
@@ -1104,7 +1104,7 @@ int ompi_osc_ucx_rget(void *origin_addr, int origin_count,
                       struct ompi_datatype_t *target_dt, struct ompi_win_t *win,
                       struct ompi_request_t **request) {
     ompi_osc_ucx_module_t *module = (ompi_osc_ucx_module_t*) win->w_osc_module;
-    uint64_t remote_addr = (module->addrs[target]) + target_disp * OSC_UCX_GET_DISP(module, target);
+    uint64_t remote_addr = ompi_osc_ucx_get_target_base(module, target) + target_disp * OSC_UCX_GET_DISP(module, target);
     ompi_osc_ucx_request_t *ucx_req = NULL;
     int ret = OMPI_SUCCESS;
 

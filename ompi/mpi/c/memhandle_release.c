@@ -41,12 +41,12 @@
 static const char FUNC_NAME[] = "MPIX_Memhandle_release";
 
 
-int MPIX_Memhandle_release(MPI_Memhandle *memhandle)
+int MPIX_Memhandle_release(MPI_Memhandle *memhandle, MPI_Win parentwin)
 {
     int ret = MPI_SUCCESS;
 
     MEMCHECKER(
-        memchecker_comm(comm);
+        memchecker_win(parentwin);
     );
     /* argument checking */
     if (MPI_PARAM_CHECK) {
@@ -60,10 +60,10 @@ int MPIX_Memhandle_release(MPI_Memhandle *memhandle)
     OPAL_CR_ENTER_LIBRARY();
 
     /* create window and return */
-    ret = ompi_memhandle_release(*memhandle);
+    ret = ompi_memhandle_release(*memhandle, parentwin);
     if (OMPI_SUCCESS != ret) {
         OPAL_CR_EXIT_LIBRARY();
-        return OMPI_ERRHANDLER_INVOKE(MPI_COMM_WORLD, MPI_ERR_WIN, FUNC_NAME);
+        return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_WIN, FUNC_NAME);
     }
 
     *memhandle = MPI_MEMHANDLE_NULL;
