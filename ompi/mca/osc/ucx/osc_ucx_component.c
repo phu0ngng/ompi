@@ -764,7 +764,7 @@ select_unlock:
 
     /* fill in the connection details */
     void *data_rkey_addr = (ucx_memhandle->_data);
-    void *state_rkey_addr = (ucx_memhandle->_data + ucx_memhandle->data_rkey_size);
+    void *state_rkey_addr = (ucx_memhandle->_data + sizeof(ucp_mem_h) + ucx_memhandle->data_rkey_size);
 
 
     static int prev_data_rkey_size = 0;
