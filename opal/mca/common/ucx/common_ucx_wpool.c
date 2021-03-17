@@ -449,7 +449,7 @@ int opal_common_ucx_wpmem_create(opal_common_ucx_ctx_t *ctx, void **mem_base, si
     mem->mem_displs = NULL;
 
     OBJ_CONSTRUCT(&mem->mutex, opal_mutex_t);
-    OBJ_CONSTRUCT(&mem->mem_records, opal_list_t);
+    //OBJ_CONSTRUCT(&mem->mem_records, opal_list_t);
 
     ret = _comm_ucx_wpmem_map(ctx->wpool, mem_base, mem_size, &mem->memh, mem_type);
     if (ret != OPAL_SUCCESS) {
@@ -548,11 +548,11 @@ void opal_common_ucx_wpmem_free(opal_common_ucx_wpmem_t *mem)
     OBJ_DESTRUCT(&mem->tls_key);
 
     /* Loop through list of records */
-    OPAL_LIST_FOREACH_SAFE (mem_rec, next, &mem->mem_records, _mem_record_t) {
-        _tlocal_mem_rec_cleanup(mem_rec);
-    }
+    //OPAL_LIST_FOREACH_SAFE(mem_rec, next, &mem->mem_records, _mem_record_t) {
+    //    _tlocal_mem_rec_cleanup(mem_rec);
+    //}
 
-    OBJ_DESTRUCT(&mem->mem_records);
+    //OBJ_DESTRUCT(&mem->mem_records);
 
     free(mem->mem_addrs);
     free(mem->mem_displs);
@@ -656,17 +656,17 @@ static int _tlocal_ctx_connect(_ctx_record_t *ctx_rec, int target)
     memset(&ep_params, 0, sizeof(ucp_ep_params_t));
     ep_params.field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS;
 
-    opal_mutex_lock(&winfo->mutex);
+    //opal_mutex_lock(&winfo->mutex);
     displ = (NULL == gctx->recv_worker_displs) ? 0 : gctx->recv_worker_displs[target];
     ep_params.address = (ucp_address_t *)&(gctx->recv_worker_addrs[displ]);
     status = ucp_ep_create(winfo->worker, &ep_params, &winfo->endpoints[target]);
     if (status != UCS_OK) {
-        opal_mutex_unlock(&winfo->mutex);
+        //opal_mutex_unlock(&winfo->mutex);
         MCA_COMMON_UCX_VERBOSE(1, "ucp_ep_create failed: %d", status);
-        opal_mutex_unlock(&winfo->mutex);
+        //opal_mutex_unlock(&winfo->mutex);
         return OPAL_ERROR;
     }
-    opal_mutex_unlock(&winfo->mutex);
+    //opal_mutex_unlock(&winfo->mutex);
     return OPAL_SUCCESS;
 }
 
@@ -683,19 +683,25 @@ static void _tlocal_mem_rec_cleanup(_mem_record_t *mem_rec)
         return;
     }
 
-    opal_mutex_lock(&mem_rec->winfo->mutex);
-    for (i = 0; i < mem_rec->gmem->ctx->comm_size; i++) {
-        if (mem_rec->rkeys[i]) {
-            ucp_rkey_destroy(mem_rec->rkeys[i]);
+    //opal_mutex_lock(&mem_rec->winfo->mutex);
+    if (NULL == mem_rec->rkeys) {
+        if (NULL != mem_rec->rkey) {
+            ucp_rkey_destroy(mem_rec->rkey);
         }
+    } else {
+        for(i = 0; i < mem_rec->gmem->ctx->comm_size; i++) {
+            if (mem_rec->rkeys[i]) {
+                ucp_rkey_destroy(mem_rec->rkeys[i]);
+            }
+        }
+        free(mem_rec->rkeys);
     }
-    opal_mutex_unlock(&mem_rec->winfo->mutex);
-    free(mem_rec->rkeys);
+    //opal_mutex_unlock(&mem_rec->winfo->mutex);
 
     /* Remove item from the list */
-    opal_mutex_lock(&mem_rec->gmem->mutex);
-    opal_list_remove_item(&mem_rec->gmem->mem_records, &mem_rec->super);
-    opal_mutex_unlock(&mem_rec->gmem->mutex);
+    //opal_mutex_lock(&mem_rec->gmem->mutex);
+    //opal_list_remove_item(&mem_rec->gmem->mem_records, &mem_rec->super);
+    //opal_mutex_unlock(&mem_rec->gmem->mutex);
 
     OBJ_RELEASE(mem_rec);
 
@@ -713,16 +719,20 @@ static _mem_record_t *_tlocal_add_mem_rec(opal_common_ucx_wpmem_t *mem, _ctx_rec
     mem_rec->gmem = mem;
     mem_rec->ctx_rec = ctx_rec;
     mem_rec->winfo = ctx_rec->winfo;
-    mem_rec->rkeys = calloc(mem->ctx->comm_size, sizeof(*mem_rec->rkeys));
+    mem_rec->rkey  = NULL;
+    mem_rec->rkeys = NULL;
+    if (NULL != mem->mem_displs) {
+        mem_rec->rkeys = calloc(mem->ctx->comm_size, sizeof(*mem_rec->rkeys));
+    }
 
     rc = opal_tsd_tracked_key_set(&mem->tls_key, mem_rec);
     if (OPAL_SUCCESS != rc) {
         return NULL;
     }
 
-    opal_mutex_lock(&mem->mutex);
-    opal_list_append(&mem->mem_records, &mem_rec->super);
-    opal_mutex_unlock(&mem->mutex);
+    //opal_mutex_lock(&mem->mutex);
+    //opal_list_append(&mem->mem_records, &mem_rec->super);
+    //opal_mutex_unlock(&mem->mutex);
 
     return mem_rec;
 }
@@ -733,9 +743,12 @@ static int _tlocal_mem_create_rkey(_mem_record_t *mem_rec, ucp_ep_h ep, int targ
     int displ = (NULL == gmem->mem_displs) ? 0 : gmem->mem_displs[target];
     ucs_status_t status;
 
-    opal_mutex_lock(&mem_rec->winfo->mutex);
-    status = ucp_ep_rkey_unpack(ep, &gmem->mem_addrs[displ], &mem_rec->rkeys[target]);
-    opal_mutex_unlock(&mem_rec->winfo->mutex);
+    // TODO: do we really need the mutex here?
+    //opal_mutex_lock(&mem_rec->winfo->mutex);
+    status = ucp_ep_rkey_unpack(ep, &gmem->mem_addrs[displ],
+                                NULL == mem_rec->rkeys ? &mem_rec->rkey
+                                                       : &mem_rec->rkeys[target]);
+    //opal_mutex_unlock(&mem_rec->winfo->mutex);
     if (status != UCS_OK) {
         MCA_COMMON_UCX_VERBOSE(1, "ucp_ep_rkey_unpack failed: %d", status);
         return OPAL_ERROR;
@@ -744,13 +757,14 @@ static int _tlocal_mem_create_rkey(_mem_record_t *mem_rec, ucp_ep_h ep, int targ
     return OPAL_SUCCESS;
 }
 
+
 /* Get the TLS in case of slow path (not everything has been yet initialized */
-OPAL_DECLSPEC int opal_common_ucx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target)
+OPAL_DECLSPEC int
+opal_common_ucx_ctx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target)
 {
     _ctx_record_t *ctx_rec = NULL;
     _mem_record_t *mem_rec = NULL;
     opal_common_ucx_winfo_t *winfo = NULL;
-    ucp_ep_h ep;
     int rc = OPAL_SUCCESS;
 
     ctx_rec = _tlocal_get_ctx_rec(mem->ctx->tls_key);
@@ -769,14 +783,44 @@ OPAL_DECLSPEC int opal_common_ucx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *me
             return rc;
         }
     }
-    ep = winfo->endpoints[target];
+
+    return OPAL_SUCCESS;
+}
+
+/* Get the TLS in case of slow path (not everything has been yet initialized */
+OPAL_DECLSPEC int opal_common_ucx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target)
+{
+    _ctx_record_t *ctx_rec = NULL;
+    _mem_record_t *mem_rec = NULL;
+    opal_common_ucx_winfo_t *winfo = NULL;
+    int rc = OPAL_SUCCESS;
+
+    ctx_rec = _tlocal_get_ctx_rec(mem->ctx->tls_key);
+    if (OPAL_UNLIKELY(!ctx_rec)) {
+        ctx_rec = _tlocal_add_ctx_rec(mem->ctx);
+        if (NULL == ctx_rec) {
+            return OPAL_ERR_OUT_OF_RESOURCE;
+        }
+    }
+    winfo = ctx_rec->winfo;
+
+    /* Obtain the endpoint */
+    if (OPAL_UNLIKELY(NULL == winfo->endpoints[target])) {
+        rc = _tlocal_ctx_connect(ctx_rec, target);
+        if (rc != OPAL_SUCCESS) {
+            return rc;
+        }
+    }
 
     /* Obtain the memory region info */
     mem_rec = _tlocal_add_mem_rec(mem, ctx_rec);
 
     /* Obtain the rkey */
-    if (OPAL_UNLIKELY(NULL == mem_rec->rkeys[target])) {
+    if (OPAL_UNLIKELY((NULL == mem_rec->rkey  && NULL == mem_rec->rkeys) ||
+                      (NULL != mem_rec->rkeys && NULL == mem_rec->rkeys[target]))) {
         /* Create the rkey */
+        ucp_ep_h ep;
+        ep = winfo->endpoints[target];
         rc = _tlocal_mem_create_rkey(mem_rec, ep, target);
         if (rc) {
             return rc;

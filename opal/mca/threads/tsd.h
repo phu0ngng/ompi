@@ -130,13 +130,15 @@ OBJ_CLASS_DECLARATION(opal_tsd_tracked_key_t);
 void opal_tsd_tracked_key_constructor(opal_tsd_tracked_key_t *key);
 void opal_tsd_tracked_key_destructor(opal_tsd_tracked_key_t *key);
 
+void opal_tsd_tracked_key_clear(opal_tsd_tracked_key_t *key);
+
 static inline int opal_tsd_tracked_key_get(opal_tsd_tracked_key_t *key, void **p)
 {
     assert(NULL != key);
     *p = NULL;
 
     opal_tsd_list_item_t *tsd = NULL;
-    opal_tsd_get(key->key, (void **) &tsd);
+    opal_tsd_get(key->key, (void **)&tsd);
     if (NULL != tsd) {
         *p = tsd->data;
     }

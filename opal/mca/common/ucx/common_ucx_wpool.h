@@ -108,7 +108,7 @@ typedef struct {
     /* A list of mem records
      * We need to kepp trakc o fallocated memory records so that we can free them at the end
      * if a thread fails to release the memory record */
-    opal_list_t mem_records;
+    //opal_list_t mem_records;
 
     /* TLS item that allows each thread to
      * store endpoints and rkey arrays
@@ -176,6 +176,7 @@ typedef struct {
     opal_common_ucx_wpmem_t *gmem;
     opal_common_ucx_winfo_t *winfo;
     ucp_rkey_h *rkeys;
+    ucp_rkey_h  rkey; // used if rkeys is NULL
     _ctx_record_t *ctx_rec;
 } _mem_record_t;
 OBJ_CLASS_DECLARATION(_mem_record_t);
@@ -204,9 +205,13 @@ OPAL_DECLSPEC void opal_common_ucx_req_completion(void *request, ucs_status_t st
 
 /* Managing thread local storage */
 OPAL_DECLSPEC int opal_common_ucx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target);
-static inline int opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
-                                               ucp_ep_h *_ep, ucp_rkey_h *_rkey,
-                                               opal_common_ucx_winfo_t **_winfo)
+
+OPAL_DECLSPEC int opal_common_ucx_ctx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target);
+
+static inline int
+opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
+                                ucp_ep_h *_ep, ucp_rkey_h *_rkey,
+                                opal_common_ucx_winfo_t **_winfo)
 {
     _mem_record_t *mem_rec = NULL;
     int is_ready;
@@ -217,7 +222,8 @@ static inline int opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int
     if (OPAL_SUCCESS != rc) {
         return rc;
     }
-    is_ready = mem_rec && (mem_rec->winfo->endpoints[target]) && (NULL != mem_rec->rkeys[target]);
+    is_ready = mem_rec && (mem_rec->winfo->endpoints[target]) &&
+            (NULL != mem_rec->rkey || (NULL != mem_rec->rkeys && NULL != mem_rec->rkeys[target]));
     MCA_COMMON_UCX_ASSERT((NULL == mem_rec) || (NULL != mem_rec->winfo));
     if (OPAL_UNLIKELY(!is_ready)) {
         rc = opal_common_ucx_tlocal_fetch_spath(mem, target);
@@ -234,7 +240,7 @@ static inline int opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int
     MCA_COMMON_UCX_ASSERT(NULL != mem_rec->winfo->endpoints[target]);
     MCA_COMMON_UCX_ASSERT(NULL != mem_rec->rkeys[target]);
 
-    *_rkey = mem_rec->rkeys[target];
+    *_rkey = NULL != mem_rec->rkey ? mem_rec->rkey : mem_rec->rkeys[target];
     *_winfo = mem_rec->winfo;
     *_ep = mem_rec->winfo->endpoints[target];
     return OPAL_SUCCESS;

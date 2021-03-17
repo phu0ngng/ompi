@@ -41,7 +41,7 @@ static void _osc_ucx_init_unlock(void)
     }
 }
 
-static opal_fifo_t module_free_list;
+static opal_lifo_t module_free_list;
 
 
 static int component_open(void);
@@ -347,7 +347,7 @@ static int initialize_env()
         return OMPI_ERR_OUT_OF_RESOURCE;
     }
 
-    OBJ_CONSTRUCT(&module_free_list, opal_fifo_t);
+    OBJ_CONSTRUCT(&module_free_list, opal_lifo_t);
 
     //PMPI_Comm_create_keyval(MPI_COMM_NULL_COPY_FN, &comm_delete_attr_delete_function,
     //                        &comm_wpool_key, NULL);
@@ -668,7 +668,7 @@ select_unlock:
     ompi_osc_ucx_module_t *parentmodule = (ompi_osc_ucx_module_t*)parentwin->w_osc_module;
     OBJ_RETAIN(parentmodule->ctx);
 
-    opal_list_item_t *free_item = opal_fifo_pop(&module_free_list);
+    opal_list_item_t *free_item = opal_lifo_pop(&module_free_list);
     if (NULL != free_item) {
         module = (ompi_osc_ucx_module_t*)(((intptr_t)free_item) - offsetof(ompi_osc_ucx_module_t, free_list_item));
     } else {
@@ -684,23 +684,18 @@ select_unlock:
         /* fill in the function pointer part */
         memcpy(module, &ompi_osc_ucx_module_template, sizeof(ompi_osc_base_module_t));
 
-        OBJ_CONSTRUCT(&module->free_list_item, opal_list_item_t);
+        module->super.osc_get_memhandle = NULL;
+        module->super.osc_release_memhandle = NULL;
+        module->super.osc_from_memhandle = NULL;
 
+        OBJ_CONSTRUCT(&module->free_list_item, opal_list_item_t);
 
         module->mem = calloc(1, sizeof(*module->mem));
         OBJ_CONSTRUCT(&module->mem->mutex, opal_mutex_t);
-        OBJ_CONSTRUCT(&module->mem->mem_records, opal_list_t);
-        OBJ_CONSTRUCT(&module->mem->tls_key, opal_tsd_tracked_key_t);
+        //OBJ_CONSTRUCT(&module->mem->mem_records, opal_list_t);
         module->mem->mem_displs = NULL;
+        OBJ_CONSTRUCT(&module->mem->tls_key, opal_tsd_tracked_key_t);
         opal_tsd_tracked_key_set_destructor(&module->mem->tls_key, _mem_rec_destructor);
-
-
-        module->state_mem = calloc(1, sizeof(*module->state_mem));
-        OBJ_CONSTRUCT(&module->state_mem->mutex, opal_mutex_t);
-        OBJ_CONSTRUCT(&module->state_mem->mem_records, opal_list_t);
-        OBJ_CONSTRUCT(&module->state_mem->tls_key, opal_tsd_tracked_key_t);
-        module->state_mem->mem_displs = NULL;
-        opal_tsd_tracked_key_set_destructor(&module->state_mem->tls_key, _mem_rec_destructor);
 
         /* init window state */
         module->state.lock = TARGET_LOCK_UNLOCKED;
@@ -744,31 +739,36 @@ select_unlock:
     module->ctx = parentmodule->ctx;
 
     module->mem->ctx = module->ctx;
-    module->state_mem->ctx = module->ctx;
 
     module->comm = parentmodule->comm;
 
     *model = MPI_WIN_UNIFIED;
-    opal_asprintf(&name, "ucx window %d (parent %s)", ompi_comm_get_cid(module->comm), parentwin->w_name);
-    ompi_win_set_name(win, name);
-    free(name);
+    bool no_attr, lock_shared;
+    int flag;
+    opal_info_get_bool(info, "mpi_win_no_attr", &no_attr, &flag);
+    if (flag && no_attr) {
+        opal_asprintf(&name, "ucx window %d (parent %s)", ompi_comm_get_cid(module->comm), parentwin->w_name);
+        ompi_win_set_name(win, name);
+        free(name);
+    }
 
     module->flavor = MPI_WIN_FLAVOR_MEMHANDLE;
     module->size = size;
     module->no_locks = false;
     module->acc_single_intrinsic = check_config_value_bool("acc_single_intrinsic", info);
-    module->always_lock_shared   = check_config_value_bool("mpi_lock_shared", info);
+    opal_info_get_bool(info, "mpi_lock_shared", &lock_shared, &flag);
+    module->always_lock_shared   = flag && lock_shared;
     module->disp_unit = disp_unit;
+
+    bool need_state = !(module->always_lock_shared && module->acc_single_intrinsic);
+
 
     ompi_osc_ucx_memhandle_t *ucx_memhandle = (ompi_osc_ucx_memhandle_t*)memhandle->reghandle;
 
     /* fill in the connection details */
     void *data_rkey_addr = (ucx_memhandle->_data);
-    void *state_rkey_addr = (ucx_memhandle->_data + sizeof(ucp_mem_h) + ucx_memhandle->data_rkey_size);
-
 
     static int prev_data_rkey_size = 0;
-    static int prev_state_rkey_size = 0;
 
     /** TODO: this is assuming that the rkey for data and state is always the same! */
     if (NULL == module->mem->mem_addrs) {
@@ -777,17 +777,38 @@ select_unlock:
     }
     memcpy(module->mem->mem_addrs, data_rkey_addr, ucx_memhandle->data_rkey_size);
 
-    if (NULL == module->state_mem->mem_addrs && ucx_memhandle->state_rkey_size > 0) {
-        module->state_mem->mem_addrs = malloc(ucx_memhandle->state_rkey_size);
-        prev_state_rkey_size = ucx_memhandle->state_rkey_size;
+    if (prev_data_rkey_size != ucx_memhandle->data_rkey_size) {
+        printf("WARN: previous rkey size does not match current rkey size: %d vs %d\n",
+               prev_data_rkey_size, ucx_memhandle->data_rkey_size);
     }
 
-    if (prev_data_rkey_size != ucx_memhandle->data_rkey_size || prev_state_rkey_size < ucx_memhandle->state_rkey_size) {
-        printf("WARN: previous rkey size does not match current rkey size: %d vs %d, %d vs %d\n",
-               prev_data_rkey_size, ucx_memhandle->data_rkey_size, prev_state_rkey_size, ucx_memhandle->state_rkey_size);
-    }
 
-    memcpy(module->state_mem->mem_addrs, state_rkey_addr, ucx_memhandle->state_rkey_size);
+    if (need_state) {
+        /* allocate state lazily */
+        if (NULL == module->state_mem) {
+            module->state_mem = calloc(1, sizeof(*module->state_mem));
+            OBJ_CONSTRUCT(&module->state_mem->mutex, opal_mutex_t);
+            //OBJ_CONSTRUCT(&module->state_mem->mem_records, opal_list_t);
+            module->state_mem->mem_displs = NULL;
+            OBJ_CONSTRUCT(&module->state_mem->tls_key, opal_tsd_tracked_key_t);
+            opal_tsd_tracked_key_set_destructor(&module->state_mem->tls_key, _mem_rec_destructor);
+        }
+        module->state_mem->ctx = module->ctx;
+        static int prev_state_rkey_size = 0;
+        if (NULL == module->state_mem->mem_addrs && ucx_memhandle->state_rkey_size > 0) {
+            module->state_mem->mem_addrs = malloc(ucx_memhandle->state_rkey_size);
+            prev_state_rkey_size = ucx_memhandle->state_rkey_size;
+        }
+
+        if (prev_state_rkey_size < ucx_memhandle->state_rkey_size) {
+            printf("WARN: previous rkey size does not match current rkey size: %d vs %d\n",
+                  prev_state_rkey_size, ucx_memhandle->state_rkey_size);
+        }
+
+        void *state_rkey_addr = (ucx_memhandle->_data + sizeof(ucp_mem_h) + ucx_memhandle->data_rkey_size);
+        memcpy(module->state_mem->mem_addrs, state_rkey_addr, ucx_memhandle->state_rkey_size);
+    }
+    module->has_state = need_state;
 
     if (module->always_lock_shared) {
         module->epoch_type.access = PASSIVE_EPOCH;
@@ -990,7 +1011,7 @@ select_unlock:
 
     /* allocate and register state memory */
     //ompi_osc_ucx_state_t *state_base = malloc(sizeof(ompi_osc_ucx_state_t));
-    ompi_osc_ucx_state_t *state_base;
+    ompi_osc_ucx_state_t *state_base = NULL;
 
     /* register state memory */
     if (need_state) {
@@ -1234,7 +1255,14 @@ int ompi_osc_ucx_free(struct ompi_win_t *win) {
     if (module->flavor == MPI_WIN_FLAVOR_MEMHANDLE) {
         opal_common_ucx_wpctx_release(module->ctx);
         module->ctx = NULL;
-        opal_fifo_push(&module_free_list, &module->free_list_item);
+        /* need to clean up the memory tls */
+
+        opal_tsd_tracked_key_clear(&module->mem->tls_key);
+        if (module->has_state) {
+            opal_tsd_tracked_key_clear(&module->state_mem->tls_key);
+        }
+
+        opal_lifo_push(&module_free_list, &module->free_list_item);
         return OMPI_SUCCESS;
     }
 

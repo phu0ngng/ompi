@@ -36,13 +36,25 @@ void opal_tsd_tracked_key_destructor(opal_tsd_tracked_key_t *key)
     opal_tsd_key_delete(key->key);
     OPAL_LIST_FOREACH_SAFE (tsd, next, &key->tsd_list, opal_tsd_list_item_t) {
         opal_list_remove_item(&key->tsd_list, &tsd->super);
-        if (NULL != key->user_destructor) {
+        if (NULL != tsd->data && NULL != key->user_destructor) {
             key->user_destructor(tsd->data);
         }
         OBJ_RELEASE(tsd);
     }
     OBJ_DESTRUCT(&key->mutex);
     OBJ_DESTRUCT(&key->tsd_list);
+}
+
+void opal_tsd_tracked_key_clear(opal_tsd_tracked_key_t *key)
+{
+    opal_tsd_list_item_t *tsd, *next;
+
+    OPAL_LIST_FOREACH_SAFE(tsd, next, &key->tsd_list, opal_tsd_list_item_t) {
+        if (NULL != tsd->data && NULL != key->user_destructor) {
+            key->user_destructor(tsd->data);
+        }
+        tsd->data = NULL;
+    }
 }
 
 int opal_tsd_tracked_key_set(opal_tsd_tracked_key_t *key, void *p)
