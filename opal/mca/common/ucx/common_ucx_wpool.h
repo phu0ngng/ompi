@@ -105,6 +105,10 @@ typedef struct {
     char *mem_addrs;
     int *mem_displs;
 
+    /* connection information for memhandle windows */
+    ucp_ep_h ep;
+    ucp_rkey_h rkey;
+
     /* A list of mem records
      * We need to kepp trakc o fallocated memory records so that we can free them at the end
      * if a thread fails to release the memory record */
@@ -216,6 +220,12 @@ opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
     _mem_record_t *mem_rec = NULL;
     int is_ready;
     int rc = OPAL_SUCCESS;
+
+    if (mem->ep && mem->rkey) {
+        *_ep = mem->ep;
+        *_rkey = mem->rkey;
+        *_winfo;
+    }
 
     /* First check the fast-path */
     rc = opal_tsd_tracked_key_get(&mem->tls_key, (void **) &mem_rec);
@@ -396,7 +406,9 @@ static inline int opal_common_ucx_wpmem_putget(opal_common_ucx_wpmem_t *mem,
     }
 
 out:
-    opal_mutex_unlock(&winfo->mutex);
+    if (NULL != winfo) {
+        opal_mutex_unlock(&winfo->mutex);
+    }
 
     return rc;
 }

@@ -539,7 +539,6 @@ error:
 
 void opal_common_ucx_wpmem_free(opal_common_ucx_wpmem_t *mem)
 {
-    _mem_record_t *mem_rec = NULL, *next;
 
     if (NULL == mem) {
         return;
@@ -548,6 +547,7 @@ void opal_common_ucx_wpmem_free(opal_common_ucx_wpmem_t *mem)
     OBJ_DESTRUCT(&mem->tls_key);
 
     /* Loop through list of records */
+    //_mem_record_t *mem_rec = NULL, *next;
     //OPAL_LIST_FOREACH_SAFE(mem_rec, next, &mem->mem_records, _mem_record_t) {
     //    _tlocal_mem_rec_cleanup(mem_rec);
     //}
@@ -886,7 +886,20 @@ OPAL_DECLSPEC int opal_common_ucx_wpmem_flush(opal_common_ucx_wpmem_t *mem,
     ctx = mem->ctx;
     opal_mutex_lock(&ctx->mutex);
 
+<<<<<<< HEAD
     OPAL_LIST_FOREACH (ctx_rec, &ctx->ctx_records, _ctx_record_t) {
+=======
+    if (NULL != mem->ep) {
+        /* fast-path for memhandle windows */
+        ucs_status_t status = UCS_OK;
+        status = ucp_ep_flush(mem->ep);
+        rc = (status == UCS_OK) ? OPAL_SUCCESS : OPAL_ERROR;
+        opal_mutex_unlock(&ctx->mutex);
+        return rc;
+    }
+
+    OPAL_LIST_FOREACH(ctx_rec, &ctx->ctx_records, _ctx_record_t) {
+>>>>>>> INTERMEDIATE: store ep and rkey directly in opal_common_ucx_wpmem_t
         opal_common_ucx_winfo_t *winfo = ctx_rec->winfo;
         if ((scope == OPAL_COMMON_UCX_SCOPE_EP) && (NULL == winfo->endpoints[target])) {
             continue;
