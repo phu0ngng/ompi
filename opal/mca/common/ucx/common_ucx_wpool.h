@@ -86,6 +86,14 @@ typedef struct {
 
 OBJ_CLASS_DECLARATION(opal_common_ucx_ctx_t);
 
+struct opal_common_ucx_ep_rkey {
+    opal_list_item_t super;
+    ucp_ep_h ep;
+    ucp_rkey_h rkey;
+};
+
+typedef struct opal_common_ucx_ep_rkey opal_common_ucx_ep_rkey_t;
+OBJ_CLASS_DECLARATION(opal_common_ucx_ep_rkey_t);
 
 /* Worker Pool memory (wpmem) is an object that represents a remotely accessible
  * distributed memory.
@@ -94,7 +102,7 @@ OBJ_CLASS_DECLARATION(opal_common_ucx_ctx_t);
  * Currently OSC is using one context per MPI Window, though in future it will
  * be possible to have one context for multiple windows.
  */
-typedef struct {
+typedef struct opal_common_ucx_wpmem {
     opal_mutex_t mutex;
 
     /* reference context to which memory region belongs */
@@ -103,11 +111,15 @@ typedef struct {
     /* UCX memory handler */
     ucp_mem_h memh;
     char *mem_addrs;
-    int *mem_displs;
+    int *mem_displs; // NULL if this is a memhandle window
 
-    /* connection information for memhandle windows */
+    /* connection information for memhandle windows, opal_common_ucx_ep_rkey_t elements */
+    opal_list_t thread_rkey_list;
+#if 0
     ucp_ep_h ep;
     ucp_rkey_h rkey;
+    opal_common_ucx_winfo_t *winfo;
+#endif // 0
 
     /* A list of mem records
      * We need to kepp trakc o fallocated memory records so that we can free them at the end
@@ -217,42 +229,86 @@ opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
                                 ucp_ep_h *_ep, ucp_rkey_h *_rkey,
                                 opal_common_ucx_winfo_t **_winfo)
 {
-    _mem_record_t *mem_rec = NULL;
-    int is_ready;
     int rc = OPAL_SUCCESS;
 
-    if (mem->ep && mem->rkey) {
-        *_ep = mem->ep;
-        *_rkey = mem->rkey;
-        *_winfo;
-    }
-
-    /* First check the fast-path */
-    rc = opal_tsd_tracked_key_get(&mem->tls_key, (void **) &mem_rec);
-    if (OPAL_SUCCESS != rc) {
-        return rc;
-    }
-    is_ready = mem_rec && (mem_rec->winfo->endpoints[target]) &&
-            (NULL != mem_rec->rkey || (NULL != mem_rec->rkeys && NULL != mem_rec->rkeys[target]));
-    MCA_COMMON_UCX_ASSERT((NULL == mem_rec) || (NULL != mem_rec->winfo));
-    if (OPAL_UNLIKELY(!is_ready)) {
-        rc = opal_common_ucx_tlocal_fetch_spath(mem, target);
+    if (NULL == mem->mem_displs) {
+        _ctx_record_t *ctx_rec = NULL;
+        rc = opal_tsd_tracked_key_get(&mem->ctx->tls_key, (void**)&ctx_rec);
         if (OPAL_SUCCESS != rc) {
             return rc;
         }
-        rc = opal_tsd_tracked_key_get(&mem->tls_key, (void **) &mem_rec);
+        if (OPAL_UNLIKELY(NULL == ctx_rec)) {
+            rc = opal_common_ucx_ctx_tlocal_fetch_spath(mem, target);
+            if (OPAL_SUCCESS != rc) {
+                return rc;
+            }
+            rc = opal_tsd_tracked_key_get(&mem->ctx->tls_key, (void**)&ctx_rec);
+            if (OPAL_SUCCESS != rc) {
+                return rc;
+            }
+        }
+        ucp_ep_h ep = ctx_rec->winfo->endpoints[target];
+
+        /* memhandle windows carry a list of rkeys for each thread */
+        opal_mutex_lock(&mem->mutex);
+        opal_common_ucx_ep_rkey_t *pair;
+        ucp_rkey_h rkey = NULL;
+        /* see if the rkey exists already */
+        OPAL_LIST_FOREACH(pair, &mem->thread_rkey_list, opal_common_ucx_ep_rkey_t) {
+            if (pair->ep == ep) {
+                rkey = pair->rkey;
+                break;
+            }
+        }
+        if (OPAL_UNLIKELY(NULL == rkey)) {
+            /* need to unpack the key */
+            pair = OBJ_NEW(opal_common_ucx_ep_rkey_t);
+            pair->ep = ep;
+            ucs_status_t status;
+            /* TODO: calling UCP functions here breaks the encapsulation but we don't care for now */
+            status = ucp_ep_rkey_unpack(ep, mem->mem_addrs, &pair->rkey);
+            //opal_mutex_unlock(&mem_rec->winfo->mutex);
+            if (status != UCS_OK) {
+                MCA_COMMON_UCX_VERBOSE(1, "ucp_ep_rkey_unpack failed: %d", status);
+                return OPAL_ERROR;
+            }
+            rkey = pair->rkey;
+            opal_list_prepend(&mem->thread_rkey_list, &pair->super);
+        }
+        opal_mutex_unlock(&mem->mutex);
+
+        *_winfo = ctx_rec->winfo;
+        *_rkey = rkey;
+        *_ep = ep;
+    } else {
+        _mem_record_t *mem_rec = NULL;
+        int is_ready;
+        /* First check the fast-path */
+        rc = opal_tsd_tracked_key_get(&mem->tls_key, (void**)&mem_rec);
         if (OPAL_SUCCESS != rc) {
             return rc;
         }
+        is_ready = mem_rec && (mem_rec->winfo->endpoints[target]) &&
+                (NULL != mem_rec->rkey || (NULL != mem_rec->rkeys && NULL != mem_rec->rkeys[target]));
+        MCA_COMMON_UCX_ASSERT((NULL == mem_rec) || (NULL != mem_rec->winfo));
+        if (OPAL_UNLIKELY(!is_ready)) {
+            rc = opal_common_ucx_tlocal_fetch_spath(mem, target);
+            if (OPAL_SUCCESS != rc) {
+                return rc;
+            }
+            rc = opal_tsd_tracked_key_get(&mem->tls_key, (void**)&mem_rec);
+            if (OPAL_SUCCESS != rc) {
+                return rc;
+            }
+        }
+        MCA_COMMON_UCX_ASSERT(NULL != mem_rec);
+        MCA_COMMON_UCX_ASSERT(NULL != mem_rec->winfo);
+        MCA_COMMON_UCX_ASSERT(NULL != mem_rec->winfo->endpoints[target]);
+        MCA_COMMON_UCX_ASSERT(NULL != mem_rec->rkeys[target]);
+        *_winfo = mem_rec->winfo;
+        *_ep = mem_rec->winfo->endpoints[target];
+        *_rkey = NULL != mem_rec->rkey ? mem_rec->rkey : mem_rec->rkeys[target];
     }
-    MCA_COMMON_UCX_ASSERT(NULL != mem_rec);
-    MCA_COMMON_UCX_ASSERT(NULL != mem_rec->winfo);
-    MCA_COMMON_UCX_ASSERT(NULL != mem_rec->winfo->endpoints[target]);
-    MCA_COMMON_UCX_ASSERT(NULL != mem_rec->rkeys[target]);
-
-    *_rkey = NULL != mem_rec->rkey ? mem_rec->rkey : mem_rec->rkeys[target];
-    *_winfo = mem_rec->winfo;
-    *_ep = mem_rec->winfo->endpoints[target];
     return OPAL_SUCCESS;
 }
 
@@ -445,7 +501,9 @@ static inline int opal_common_ucx_wpmem_cmpswp(opal_common_ucx_wpmem_t *mem, uin
     }
 
 out:
-    opal_mutex_unlock(&winfo->mutex);
+    if (NULL != winfo) {
+        opal_mutex_unlock(&winfo->mutex);
+    }
 
     return rc;
 }

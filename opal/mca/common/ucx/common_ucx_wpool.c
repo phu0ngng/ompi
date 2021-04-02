@@ -21,11 +21,13 @@
  ******************************************************************************/
 
 static void opal_common_ucx_wpctx_dtor(opal_common_ucx_ctx_t *ctx);
+static void opal_common_ucx_ep_rkey_dtor(opal_common_ucx_ep_rkey_t *pair);
 
 OBJ_CLASS_INSTANCE(opal_common_ucx_ctx_t, opal_object_t, NULL, &opal_common_ucx_wpctx_dtor);
 OBJ_CLASS_INSTANCE(opal_common_ucx_winfo_t, opal_list_item_t, NULL, _winfo_destructor);
 OBJ_CLASS_INSTANCE(_ctx_record_t, opal_list_item_t, NULL, NULL);
 OBJ_CLASS_INSTANCE(_mem_record_t, opal_list_item_t, NULL, NULL);
+OBJ_CLASS_INSTANCE(opal_common_ucx_ep_rkey_t, opal_list_item_t, NULL, &opal_common_ucx_ep_rkey_dtor);
 
 // TODO: Remove once debug is completed
 #ifdef OPAL_COMMON_UCX_WPOOL_DBG
@@ -421,6 +423,14 @@ OPAL_DECLSPEC void opal_common_ucx_wpctx_release(opal_common_ucx_ctx_t *ctx)
     OBJ_DESTRUCT(&ctx->ctx_records);
 }
 
+
+static void opal_common_ucx_ep_rkey_dtor(opal_common_ucx_ep_rkey_t *pair)
+{
+    ucp_rkey_destroy(pair->rkey);
+    pair->ep = NULL;
+    pair->rkey = NULL;
+}
+
 OPAL_DECLSPEC void
 opal_common_ucx_wpctx_release(opal_common_ucx_ctx_t *ctx)
 {
@@ -758,7 +768,9 @@ static int _tlocal_mem_create_rkey(_mem_record_t *mem_rec, ucp_ep_h ep, int targ
 }
 
 
-/* Get the TLS in case of slow path (not everything has been yet initialized */
+/* Get the TLS in case of slow path (not everything has been yet initialized)
+ * This is the path taken for memoryhandle windows, ignoring the thread-local mem_rec
+ */
 OPAL_DECLSPEC int
 opal_common_ucx_ctx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target)
 {
@@ -886,20 +898,7 @@ OPAL_DECLSPEC int opal_common_ucx_wpmem_flush(opal_common_ucx_wpmem_t *mem,
     ctx = mem->ctx;
     opal_mutex_lock(&ctx->mutex);
 
-<<<<<<< HEAD
-    OPAL_LIST_FOREACH (ctx_rec, &ctx->ctx_records, _ctx_record_t) {
-=======
-    if (NULL != mem->ep) {
-        /* fast-path for memhandle windows */
-        ucs_status_t status = UCS_OK;
-        status = ucp_ep_flush(mem->ep);
-        rc = (status == UCS_OK) ? OPAL_SUCCESS : OPAL_ERROR;
-        opal_mutex_unlock(&ctx->mutex);
-        return rc;
-    }
-
     OPAL_LIST_FOREACH(ctx_rec, &ctx->ctx_records, _ctx_record_t) {
->>>>>>> INTERMEDIATE: store ep and rkey directly in opal_common_ucx_wpmem_t
         opal_common_ucx_winfo_t *winfo = ctx_rec->winfo;
         if ((scope == OPAL_COMMON_UCX_SCOPE_EP) && (NULL == winfo->endpoints[target])) {
             continue;

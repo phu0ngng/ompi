@@ -692,6 +692,7 @@ select_unlock:
 
         module->mem = calloc(1, sizeof(*module->mem));
         OBJ_CONSTRUCT(&module->mem->mutex, opal_mutex_t);
+        OBJ_CONSTRUCT(&module->mem->thread_rkey_list, opal_list_t);
         //OBJ_CONSTRUCT(&module->mem->mem_records, opal_list_t);
         module->mem->mem_displs = NULL;
         //OBJ_CONSTRUCT(&module->mem->tls_key, opal_tsd_tracked_key_t);
@@ -736,17 +737,6 @@ select_unlock:
     }
 #endif // 0
 
-    /**
-     * get the connection information from the parent window
-     * TODO: should we connect one ep per window?
-     */
-    ucp_ep_h ep;
-    ucp_rkey_h _rkey; // ignored
-    opal_common_ucx_winfo_t *_winfo;
-    opal_common_ucx_tlocal_fetch(parentmodule->mem, target, &ep, &_rkey, &_winfo);
-
-    module->mem->ep = ep;
-
     module->ctx = parentmodule->ctx;
 
     module->mem->ctx = module->ctx;
@@ -778,51 +768,48 @@ select_unlock:
 
     /* fill in the connection details */
     void *data_rkey_addr = (ucx_memhandle->_data);
-    ucs_status_t status;
-    status = ucp_ep_rkey_unpack(ep, data_rkey_addr, &module->mem->rkey);
 
-    //static int prev_data_rkey_size = 0;
+    static int prev_data_rkey_size = 0;
 
-    /** TODO: this is assuming that the rkey for data and state is always the same! */
-    //if (NULL == module->mem->mem_addrs) {
-    //    module->mem->mem_addrs = malloc(ucx_memhandle->data_rkey_size);
-    //    prev_data_rkey_size = ucx_memhandle->data_rkey_size;
-    //}
-    //memcpy(module->mem->mem_addrs, data_rkey_addr, ucx_memhandle->data_rkey_size);
-    //if (prev_data_rkey_size != ucx_memhandle->data_rkey_size) {
-    //    printf("WARN: previous rkey size does not match current rkey size: %d vs %d\n",
-    //           prev_data_rkey_size, ucx_memhandle->data_rkey_size);
-    //}
-
+    /** TODO: this is assuming that the rkeys for data and state have always the same size! */
+    if (NULL == module->mem->mem_addrs) {
+        module->mem->mem_addrs = malloc(ucx_memhandle->data_rkey_size);
+        prev_data_rkey_size = ucx_memhandle->data_rkey_size;
+    }
+    memcpy(module->mem->mem_addrs, data_rkey_addr, ucx_memhandle->data_rkey_size);
+    if (prev_data_rkey_size != ucx_memhandle->data_rkey_size) {
+        printf("WARN: previous rkey size does not match current rkey size: %d vs %d\n",
+               prev_data_rkey_size, ucx_memhandle->data_rkey_size);
+    }
 
     if (need_state) {
         /* allocate state lazily */
         if (NULL == module->state_mem) {
             module->state_mem = calloc(1, sizeof(*module->state_mem));
             OBJ_CONSTRUCT(&module->state_mem->mutex, opal_mutex_t);
+            OBJ_CONSTRUCT(&module->state_mem->thread_rkey_list, opal_list_t);
             //OBJ_CONSTRUCT(&module->state_mem->mem_records, opal_list_t);
             //module->state_mem->mem_displs = NULL;
             //OBJ_CONSTRUCT(&module->state_mem->tls_key, opal_tsd_tracked_key_t);
             //opal_tsd_tracked_key_set_destructor(&module->state_mem->tls_key, _mem_rec_destructor);
         }
         module->state_mem->ctx = module->ctx;
-        //static int prev_state_rkey_size = 0;
-        //if (NULL == module->state_mem->mem_addrs && ucx_memhandle->state_rkey_size > 0) {
-        //    module->state_mem->mem_addrs = malloc(ucx_memhandle->state_rkey_size);
-        //    prev_state_rkey_size = ucx_memhandle->state_rkey_size;
-        //}
-        //
-        //if (prev_state_rkey_size < ucx_memhandle->state_rkey_size) {
-        //    printf("WARN: previous rkey size does not match current rkey size: %d vs %d\n",
-        //          prev_state_rkey_size, ucx_memhandle->state_rkey_size);
-        //}
+        static int prev_state_rkey_size = 0;
+        if (NULL == module->state_mem->mem_addrs && ucx_memhandle->state_rkey_size > 0) {
+            module->state_mem->mem_addrs = malloc(ucx_memhandle->state_rkey_size);
+            prev_state_rkey_size = ucx_memhandle->state_rkey_size;
+        }
+
+        if (prev_state_rkey_size < ucx_memhandle->state_rkey_size) {
+            printf("WARN: previous rkey size does not match current rkey size: %d vs %d\n",
+                  prev_state_rkey_size, ucx_memhandle->state_rkey_size);
+        }
 
         void *state_rkey_addr = (ucx_memhandle->_data + sizeof(ucp_mem_h) + ucx_memhandle->data_rkey_size);
-        //memcpy(module->state_mem->mem_addrs, state_rkey_addr, ucx_memhandle->state_rkey_size);
-        module->state_mem->ep = ep;
+        memcpy(module->state_mem->mem_addrs, state_rkey_addr, ucx_memhandle->state_rkey_size);
 
-        ucs_status_t status;
-        status = ucp_ep_rkey_unpack(ep, state_rkey_addr, &module->state_mem->rkey);
+        //ucs_status_t status;
+        //status = ucp_ep_rkey_unpack(ep, state_rkey_addr, &module->state_mem->rkey);
     }
     module->has_state = need_state;
 
@@ -1272,11 +1259,15 @@ int ompi_osc_ucx_free(struct ompi_win_t *win) {
         opal_common_ucx_wpctx_release(module->ctx);
         module->ctx = NULL;
         /* need to clean up the memory tls */
-
-        //opal_tsd_tracked_key_clear(&module->mem->tls_key);
-        //if (module->has_state) {
-        //    opal_tsd_tracked_key_clear(&module->state_mem->tls_key);
-        //}
+        opal_common_ucx_ep_rkey_t *pair;
+        while (NULL != (pair = (opal_common_ucx_ep_rkey_t *)opal_list_remove_first(&module->mem->thread_rkey_list))) {
+            OBJ_RELEASE(pair); // rkey destruction is done in the dtor
+        }
+        if (NULL != module->state_mem) {
+            while (NULL != (pair = (opal_common_ucx_ep_rkey_t *)opal_list_remove_first(&module->state_mem->thread_rkey_list))) {
+                OBJ_RELEASE(pair); // rkey destruction is done in the dtor
+            }
+        }
 
         opal_lifo_push(&module_free_list, &module->free_list_item);
         return OMPI_SUCCESS;
