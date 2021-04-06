@@ -127,16 +127,6 @@ struct ompi_predefined_win_t {
 };
 typedef struct ompi_predefined_win_t ompi_predefined_win_t;
 
-
-struct ompi_memhandle_t
-{
-    // TODO: we don't really need this field anymore, but the struct cannot empty either...
-    char osc_component[8]; // OSC components are short, limit to 16 chars
-    char reghandle[]; // holds the underlying registration information
-};
-
-typedef struct ompi_memhandle_t ompi_memhandle_t;
-
 OMPI_DECLSPEC extern ompi_predefined_win_t ompi_mpi_win_null;
 OMPI_DECLSPEC extern ompi_predefined_win_t *ompi_mpi_win_null_addr;
 
@@ -152,15 +142,16 @@ int ompi_win_allocate_shared(size_t size, int disp_unit, opal_info_t *info,
                       ompi_communicator_t *comm, void *baseptr, ompi_win_t **newwin);
 int ompi_win_create_dynamic(opal_info_t *info, ompi_communicator_t *comm, ompi_win_t **newwin);
 
-int ompi_win_from_memhandle(ompi_memhandle_t *memhandle, size_t size, int disp_unit, opal_info_t *info, int target, ompi_win_t *parentwin, ompi_win_t **newwin);
+int ompi_win_from_memhandle(const char memhandle[], size_t size, int disp_unit, opal_info_t *info,
+                            int target, ompi_win_t *parentwin, ompi_win_t **newwin);
 
 int ompi_memhandle_create(void *base, size_t size,
                           ompi_info_t *info,
                           ompi_win_t *parentwin,
-                          ompi_memhandle_t **memhandle,
+                          char memhandle[],
                           int *memhandle_size);
 
-int ompi_memhandle_release(ompi_memhandle_t *memhandle, ompi_win_t *parentwin);
+int ompi_memhandle_release(char memhandle[], ompi_win_t *parentwin);
 
 int ompi_win_free(ompi_win_t *win);
 

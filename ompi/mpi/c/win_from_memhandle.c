@@ -41,7 +41,7 @@
 static const char FUNC_NAME[] = "MPIX_Win_from_memhandle";
 
 
-int MPIX_Win_from_memhandle(MPI_Memhandle memhandle, MPI_Aint size, int disp_unit,
+int MPIX_Win_from_memhandle(const char memhandle[], MPI_Aint size, int disp_unit,
                            MPI_Info info, int target, MPI_Win parentwin, MPI_Win *newwin)
 {
     int ret = MPI_SUCCESS;

@@ -231,15 +231,15 @@ int ompi_osc_ucx_flush_local_all(struct ompi_win_t *win);
 int ompi_osc_ucx_from_memhandle(
     struct ompi_win_t *win, size_t size, int disp_unit, int target,
     struct ompi_win_t *parentwin, struct opal_info_t *info,
-    ompi_memhandle_t *memhandle, int *model);
+    const char memhandle[], int *model);
 int ompi_osc_ucx_get_memhandle(void *base,
                                size_t size,
                                struct opal_info_t *info,
                                struct ompi_win_t *parentwin,
-                               ompi_memhandle_t **memhandle,
+                               char memhandle[],
                                int *memhandle_size);
 
-int ompi_osc_ucx_release_memhandle(ompi_memhandle_t *memhandle,
+int ompi_osc_ucx_release_memhandle(char memhandle[],
                                    struct ompi_win_t *parentwin);
 
 int ompi_osc_find_attached_region_position(ompi_osc_dynamic_win_info_t *dynamic_wins,

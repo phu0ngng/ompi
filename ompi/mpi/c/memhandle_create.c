@@ -42,7 +42,7 @@ static const char FUNC_NAME[] = "MPI_Memhandle_create";
 
 
 int MPIX_Memhandle_create(void *base, MPI_Aint size, MPI_Info info, MPI_Win parentwin,
-                         MPI_Memhandle *memhandle, int *memhandle_size)
+                         char memhandle[], int *memhandle_size)
 {
     int ret = MPI_SUCCESS;
 
@@ -68,7 +68,6 @@ int MPIX_Memhandle_create(void *base, MPI_Aint size, MPI_Info info, MPI_Win pare
     ret = ompi_memhandle_create(base, (size_t)size, info, parentwin, memhandle, memhandle_size);
     if (OMPI_SUCCESS != ret) {
         printf("ompi_memhandle_create failed!\n");
-        *memhandle = MPI_MEMHANDLE_NULL;
         return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_WIN, FUNC_NAME);
     }
 

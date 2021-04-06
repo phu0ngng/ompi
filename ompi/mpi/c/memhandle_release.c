@@ -41,7 +41,7 @@
 static const char FUNC_NAME[] = "MPIX_Memhandle_release";
 
 
-int MPIX_Memhandle_release(MPI_Memhandle *memhandle, MPI_Win parentwin)
+int MPIX_Memhandle_release(char memhandle[], MPI_Win parentwin)
 {
     int ret = MPI_SUCCESS;
 
@@ -57,12 +57,10 @@ int MPIX_Memhandle_release(MPI_Memhandle *memhandle, MPI_Win parentwin)
     }
 
     /* create window and return */
-    ret = ompi_memhandle_release(*memhandle, parentwin);
+    ret = ompi_memhandle_release(memhandle, parentwin);
     if (OMPI_SUCCESS != ret) {
         return OMPI_ERRHANDLER_INVOKE(parentwin, MPI_ERR_WIN, FUNC_NAME);
     }
-
-    *memhandle = MPI_MEMHANDLE_NULL;
 
     return MPI_SUCCESS;
 }

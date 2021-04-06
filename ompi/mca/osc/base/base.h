@@ -56,7 +56,7 @@ ompi_osc_base_from_memhandle(ompi_win_t *win,
                              opal_info_t *info,
                              int flavor,
                              int *model,
-                             ompi_memhandle_t *memhandle);
+                             const char memhandle[]);
 
 int
 ompi_osc_base_get_memhandle(
@@ -64,10 +64,10 @@ ompi_osc_base_get_memhandle(
                    size_t size,
                    struct opal_info_t *info,
                    ompi_win_t *parentwin,
-                   ompi_memhandle_t **memhandle,
+                   char memhandle[],
                    int *memhandle_size);
 
-int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle,
+int ompi_osc_base_release_memhandle(char memhandle[],
                                     struct ompi_win_t *parentwin);
 
 int ompi_osc_base_finalize(void);

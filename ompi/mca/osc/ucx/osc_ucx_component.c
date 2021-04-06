@@ -606,7 +606,7 @@ error_nomem:
 
 int ompi_osc_ucx_from_memhandle(struct ompi_win_t *win, size_t size, int disp_unit, int target,
                                 struct ompi_win_t *parentwin, struct opal_info_t *info,
-                                ompi_memhandle_t *memhandle, int *model) {
+                                const char memhandle[], int *model) {
     ompi_osc_ucx_module_t *module = NULL;
     char *name = NULL;
     int ret = OMPI_SUCCESS;
@@ -764,10 +764,10 @@ select_unlock:
     bool need_state = !(module->always_lock_shared && module->acc_single_intrinsic);
 
 
-    ompi_osc_ucx_memhandle_t *ucx_memhandle = (ompi_osc_ucx_memhandle_t*)memhandle->reghandle;
+    const ompi_osc_ucx_memhandle_t *ucx_memhandle = (const ompi_osc_ucx_memhandle_t*)memhandle;
 
     /* fill in the connection details */
-    void *data_rkey_addr = (ucx_memhandle->_data);
+    const void *data_rkey_addr = (ucx_memhandle->_data);
 
     static int prev_data_rkey_size = 0;
 
@@ -805,7 +805,7 @@ select_unlock:
                   prev_state_rkey_size, ucx_memhandle->state_rkey_size);
         }
 
-        void *state_rkey_addr = (ucx_memhandle->_data + sizeof(ucp_mem_h) + ucx_memhandle->data_rkey_size);
+        const void *state_rkey_addr = (ucx_memhandle->_data + sizeof(ucp_mem_h) + ucx_memhandle->data_rkey_size);
         memcpy(module->state_mem->mem_addrs, state_rkey_addr, ucx_memhandle->state_rkey_size);
 
         //ucs_status_t status;
@@ -947,7 +947,7 @@ int ompi_osc_ucx_get_memhandle(void *base,
                             size_t size,
                             struct opal_info_t *info,
                             struct ompi_win_t *parentwin,
-                            ompi_memhandle_t **memhandle,
+                            char memhandle[],
                             int *memhandle_size)
 {
     void *data_rkey_addr;
@@ -1050,23 +1050,7 @@ select_unlock:
         }
     }
 
-    /* now compute the size we need */
-    static bool size_printed = false;
-    if (!size_printed) {
-        printf("sizeof(ompi_memhandle_t): %zu\n"
-              "sizeof(ompi_osc_ucx_memhandle_t): %zu\n"
-             // "mca_osc_ucx_component.wpool->recv_waddr_len: %zu\n"
-              "data_rkey_addr_len: %zu\n"
-              "state_rkey_addr_len: %zu\n"
-              "sizeof(ucp_mem_h)*2: %zu\n",
-              sizeof(ompi_memhandle_t), sizeof(ompi_osc_ucx_memhandle_t),
-               // mca_osc_ucx_component.wpool->recv_waddr_len,
-                data_rkey_addr_len,
-                state_rkey_addr_len,
-              sizeof(ucp_mem_h)*2);
-        size_printed = true;
-    }
-    size_t handle_size = sizeof(ompi_memhandle_t) + sizeof(ompi_osc_ucx_memhandle_t)
+    size_t handle_size = sizeof(ompi_osc_ucx_memhandle_t)
                          //+ mca_osc_ucx_component.wpool->recv_waddr_len
                          + data_rkey_addr_len
                          + sizeof(ucp_mem_h) // need to store the local memory handle for cleanup
@@ -1075,10 +1059,14 @@ select_unlock:
         handle_size += state_rkey_addr_len + sizeof(ucp_mem_h);
     }
 
-    ompi_memhandle_t *ompi_handle = malloc(handle_size);
-    /* set the component name */
-    strncpy(ompi_handle->osc_component, mca_osc_ucx_component.super.osc_version.mca_component_name, sizeof(ompi_handle->osc_component));
-    ompi_osc_ucx_memhandle_t *ucx_handle = (ompi_osc_ucx_memhandle_t*)ompi_handle->reghandle;
+    /* now compute the size we need */
+    static bool size_printed = false;
+    if (!size_printed) {
+        printf("Total memhandle size: %zu\n", handle_size);
+        size_printed = true;
+    }
+
+    ompi_osc_ucx_memhandle_t *ucx_handle = (ompi_osc_ucx_memhandle_t*)memhandle;
     //ucx_handle->recv_worker_addr_len = mca_osc_ucx_component.wpool->recv_waddr_len;
     if (data_rkey_addr_len > UINT16_MAX || state_rkey_addr_len > UINT16_MAX) {
         printf("WARN: UCX rkeys are too large for this implementation!\n");
@@ -1110,17 +1098,16 @@ select_unlock:
         ucp_rkey_buffer_release(state_rkey_addr);
     }
 
-    *memhandle      = ompi_handle;
     *memhandle_size = handle_size;
 
     return OMPI_SUCCESS;
 }
 
-int ompi_osc_ucx_release_memhandle(ompi_memhandle_t *memhandle, ompi_win_t *parentwin)
+int ompi_osc_ucx_release_memhandle(char memhandle[], ompi_win_t *parentwin)
 {
     (void)parentwin;
 
-    ompi_osc_ucx_memhandle_t *ucx_handle = (ompi_osc_ucx_memhandle_t*)memhandle->reghandle;
+    ompi_osc_ucx_memhandle_t *ucx_handle = (ompi_osc_ucx_memhandle_t*)memhandle;
 
     //void *data_rkey_addr;
     //data_rkey_addr = ucx_handle->_data + ucx_handle->recv_worker_addr_len;
@@ -1138,9 +1125,6 @@ int ompi_osc_ucx_release_memhandle(ompi_memhandle_t *memhandle, ompi_win_t *pare
         /* Unmap state segment */
         ucp_mem_unmap(mca_osc_ucx_component.wpool->ucp_ctx, state_mem_h);
     }
-
-    /* Free the handle we allocated */
-    free(memhandle);
 
     return OMPI_SUCCESS;
 }

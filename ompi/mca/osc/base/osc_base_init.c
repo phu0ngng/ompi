@@ -99,7 +99,7 @@ ompi_osc_base_from_memhandle(ompi_win_t *win,
                             opal_info_t *info,
                             int flavor,
                             int *model,
-                            ompi_memhandle_t *memhandle)
+                            const char memhandle[])
 {
 #if 0
     opal_list_item_t *item;
@@ -154,7 +154,7 @@ ompi_osc_base_get_memhandle(
                    size_t size,
                    struct opal_info_t *info,
                    ompi_win_t *parentwin,
-                   ompi_memhandle_t **memhandle,
+                   char memhandle[],
                    int *memhandle_size)
 {
 #if 0
@@ -197,7 +197,7 @@ ompi_osc_base_get_memhandle(
     return parentwin->w_osc_module->osc_get_memhandle(base, size, info, parentwin, memhandle, memhandle_size);
 }
 
-int ompi_osc_base_release_memhandle(ompi_memhandle_t *memhandle, struct ompi_win_t *parentwin)
+int ompi_osc_base_release_memhandle(char memhandle[], struct ompi_win_t *parentwin)
 {
 #if 0
     opal_list_item_t *item;

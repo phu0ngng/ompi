@@ -357,7 +357,7 @@ ompi_win_create_dynamic(opal_info_t *info, ompi_communicator_t *comm, ompi_win_t
 }
 
 
-int ompi_win_from_memhandle(ompi_memhandle_t *memhandle, size_t size,
+int ompi_win_from_memhandle(const char memhandle[], size_t size,
                             int disp_unit, opal_info_t *info, int target,
                             ompi_win_t *parentwin, ompi_win_t **newwin)
 {
@@ -395,13 +395,13 @@ int ompi_win_from_memhandle(ompi_memhandle_t *memhandle, size_t size,
 int ompi_memhandle_create(void *base, size_t size,
                           ompi_info_t *info,
                           ompi_win_t *win,
-                          ompi_memhandle_t **memhandle,
+                          char memhandle[],
                           int *memhandle_size)
 {
     return ompi_osc_base_get_memhandle(base, size, &info->super, win, memhandle, memhandle_size);
 }
 
-int ompi_memhandle_release(ompi_memhandle_t *memhandle, ompi_win_t *parentwin)
+int ompi_memhandle_release(char memhandle[], ompi_win_t *parentwin)
 {
     return ompi_osc_base_release_memhandle(memhandle, parentwin);
 }

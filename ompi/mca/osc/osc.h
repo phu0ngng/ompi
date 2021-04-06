@@ -360,17 +360,17 @@ typedef int (*ompi_osc_base_module_from_memhandle_fn_t)(struct ompi_win_t *win,
                                                         int target,
                                                         struct ompi_win_t *parentwin,
                                                         struct opal_info_t *info,
-                                                        struct ompi_memhandle_t *memhandle,
+                                                        const char memhandle[],
                                                         int *model);
 
 typedef int (*ompi_osc_base_module_get_memhandle_fn_t)(void *base,
                                                  size_t size,
                                                  struct opal_info_t *info,
                                                  struct ompi_win_t *parentwin,
-                                                 struct ompi_memhandle_t **memhandle,
+                                                 char memhandle[],
                                                  int *memhandle_size);
 
-typedef int (*ompi_osc_base_module_release_memhandle_fn_t)(struct ompi_memhandle_t *memhandle,
+typedef int (*ompi_osc_base_module_release_memhandle_fn_t)(char memhandle[],
                                                            struct ompi_win_t *win);
 
 
