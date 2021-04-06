@@ -40,7 +40,7 @@ static inline _ctx_record_t *_tlocal_get_ctx_rec(opal_tsd_tracked_key_t tls_key)
 static void _tlocal_ctx_rec_cleanup(_ctx_record_t *ctx_rec);
 static void _tlocal_mem_rec_cleanup(_mem_record_t *mem_rec);
 static void _ctx_rec_destructor(void *arg);
-void _mem_rec_destructor(void *arg);
+static void _mem_rec_destructor(void *arg);
 
 /* -----------------------------------------------------------------------------
  * Worker information (winfo) management functionality
@@ -398,7 +398,7 @@ error:
     return ret;
 }
 
-OPAL_DECLSPEC void opal_common_ucx_wpctx_release(opal_common_ucx_ctx_t *ctx)
+static void opal_common_ucx_wpctx_dtor(opal_common_ucx_ctx_t *ctx)
 {
 
     _ctx_record_t *ctx_rec = NULL, *next;
