@@ -462,9 +462,7 @@ static inline int opal_common_ucx_wpmem_putget(opal_common_ucx_wpmem_t *mem,
     }
 
 out:
-    if (NULL != winfo) {
-        opal_mutex_unlock(&winfo->mutex);
-    }
+    opal_mutex_unlock(&winfo->mutex);
 
     return rc;
 }
@@ -501,9 +499,7 @@ static inline int opal_common_ucx_wpmem_cmpswp(opal_common_ucx_wpmem_t *mem, uin
     }
 
 out:
-    if (NULL != winfo) {
-        opal_mutex_unlock(&winfo->mutex);
-    }
+    opal_mutex_unlock(&winfo->mutex);
 
     return rc;
 }

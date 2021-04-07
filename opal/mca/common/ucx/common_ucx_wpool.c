@@ -666,17 +666,17 @@ static int _tlocal_ctx_connect(_ctx_record_t *ctx_rec, int target)
     memset(&ep_params, 0, sizeof(ucp_ep_params_t));
     ep_params.field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS;
 
-    //opal_mutex_lock(&winfo->mutex);
+    opal_mutex_lock(&winfo->mutex);
     displ = (NULL == gctx->recv_worker_displs) ? 0 : gctx->recv_worker_displs[target];
     ep_params.address = (ucp_address_t *)&(gctx->recv_worker_addrs[displ]);
     status = ucp_ep_create(winfo->worker, &ep_params, &winfo->endpoints[target]);
     if (status != UCS_OK) {
         //opal_mutex_unlock(&winfo->mutex);
         MCA_COMMON_UCX_VERBOSE(1, "ucp_ep_create failed: %d", status);
-        //opal_mutex_unlock(&winfo->mutex);
+        opal_mutex_unlock(&winfo->mutex);
         return OPAL_ERROR;
     }
-    //opal_mutex_unlock(&winfo->mutex);
+    opal_mutex_unlock(&winfo->mutex);
     return OPAL_SUCCESS;
 }
 
@@ -693,7 +693,7 @@ static void _tlocal_mem_rec_cleanup(_mem_record_t *mem_rec)
         return;
     }
 
-    //opal_mutex_lock(&mem_rec->winfo->mutex);
+    opal_mutex_lock(&mem_rec->winfo->mutex);
     if (NULL == mem_rec->rkeys) {
         if (NULL != mem_rec->rkey) {
             ucp_rkey_destroy(mem_rec->rkey);
@@ -706,7 +706,7 @@ static void _tlocal_mem_rec_cleanup(_mem_record_t *mem_rec)
         }
         free(mem_rec->rkeys);
     }
-    //opal_mutex_unlock(&mem_rec->winfo->mutex);
+    opal_mutex_unlock(&mem_rec->winfo->mutex);
 
     /* Remove item from the list */
     //opal_mutex_lock(&mem_rec->gmem->mutex);
@@ -754,11 +754,11 @@ static int _tlocal_mem_create_rkey(_mem_record_t *mem_rec, ucp_ep_h ep, int targ
     ucs_status_t status;
 
     // TODO: do we really need the mutex here?
-    //opal_mutex_lock(&mem_rec->winfo->mutex);
+    opal_mutex_lock(&mem_rec->winfo->mutex);
     status = ucp_ep_rkey_unpack(ep, &gmem->mem_addrs[displ],
                                 NULL == mem_rec->rkeys ? &mem_rec->rkey
                                                        : &mem_rec->rkeys[target]);
-    //opal_mutex_unlock(&mem_rec->winfo->mutex);
+    opal_mutex_unlock(&mem_rec->winfo->mutex);
     if (status != UCS_OK) {
         MCA_COMMON_UCX_VERBOSE(1, "ucp_ep_rkey_unpack failed: %d", status);
         return OPAL_ERROR;
