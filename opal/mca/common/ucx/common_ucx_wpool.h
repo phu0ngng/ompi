@@ -237,7 +237,8 @@ opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
         if (OPAL_SUCCESS != rc) {
             return rc;
         }
-        if (OPAL_UNLIKELY(NULL == ctx_rec)) {
+        bool is_ready = (NULL != ctx_rec) && NULL != ctx_rec->winfo->endpoints[target];
+        if (!is_ready) {
             rc = opal_common_ucx_ctx_tlocal_fetch_spath(mem, target);
             if (OPAL_SUCCESS != rc) {
                 return rc;
