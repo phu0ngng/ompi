@@ -88,7 +88,8 @@ OBJ_CLASS_DECLARATION(opal_common_ucx_ctx_t);
 
 struct opal_common_ucx_ep_rkey {
     opal_list_item_t super;
-    ucp_ep_h ep;
+    //ucp_ep_h ep;
+    opal_common_ucx_winfo_t *winfo;
     ucp_rkey_h rkey;
 };
 
@@ -248,7 +249,8 @@ opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
                 return rc;
             }
         }
-        ucp_ep_h ep = ctx_rec->winfo->endpoints[target];
+        opal_common_ucx_winfo_t *winfo = ctx_rec->winfo;
+        ucp_ep_h ep = winfo->endpoints[target];
 
         /* memhandle windows carry a list of rkeys for each thread */
         opal_mutex_lock(&mem->mutex);
@@ -256,7 +258,7 @@ opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
         ucp_rkey_h rkey = NULL;
         /* see if the rkey exists already */
         OPAL_LIST_FOREACH(pair, &mem->thread_rkey_list, opal_common_ucx_ep_rkey_t) {
-            if (pair->ep == ep) {
+            if (pair->winfo == winfo) {
                 rkey = pair->rkey;
                 break;
             }
@@ -264,8 +266,11 @@ opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
         if (OPAL_UNLIKELY(NULL == rkey)) {
             /* need to unpack the key */
             pair = OBJ_NEW(opal_common_ucx_ep_rkey_t);
-            pair->ep = ep;
+            pair->winfo = winfo;
             ucs_status_t status;
+
+            opal_mutex_lock(&winfo->mutex);
+
             /* TODO: calling UCP functions here breaks the encapsulation but we don't care for now */
             status = ucp_ep_rkey_unpack(ep, mem->mem_addrs, &pair->rkey);
             //opal_mutex_unlock(&mem_rec->winfo->mutex);
@@ -273,12 +278,14 @@ opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
                 MCA_COMMON_UCX_VERBOSE(1, "ucp_ep_rkey_unpack failed: %d", status);
                 return OPAL_ERROR;
             }
+            opal_mutex_unlock(&winfo->mutex);
+
             rkey = pair->rkey;
             opal_list_prepend(&mem->thread_rkey_list, &pair->super);
         }
         opal_mutex_unlock(&mem->mutex);
 
-        *_winfo = ctx_rec->winfo;
+        *_winfo = winfo;
         *_rkey = rkey;
         *_ep = ep;
     } else {

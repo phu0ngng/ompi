@@ -426,8 +426,10 @@ static void opal_common_ucx_wpctx_dtor(opal_common_ucx_ctx_t *ctx)
 
 static void opal_common_ucx_ep_rkey_dtor(opal_common_ucx_ep_rkey_t *pair)
 {
+    opal_mutex_lock(&pair->winfo->mutex);
     ucp_rkey_destroy(pair->rkey);
-    pair->ep = NULL;
+    opal_mutex_unlock(&pair->winfo->mutex);
+    pair->winfo = NULL;
     pair->rkey = NULL;
 }
 
@@ -676,6 +678,7 @@ static int _tlocal_ctx_connect(_ctx_record_t *ctx_rec, int target)
         opal_mutex_unlock(&winfo->mutex);
         return OPAL_ERROR;
     }
+    assert(NULL != winfo->endpoints[target]);
     opal_mutex_unlock(&winfo->mutex);
     return OPAL_SUCCESS;
 }
@@ -753,7 +756,6 @@ static int _tlocal_mem_create_rkey(_mem_record_t *mem_rec, ucp_ep_h ep, int targ
     int displ = (NULL == gmem->mem_displs) ? 0 : gmem->mem_displs[target];
     ucs_status_t status;
 
-    // TODO: do we really need the mutex here?
     opal_mutex_lock(&mem_rec->winfo->mutex);
     status = ucp_ep_rkey_unpack(ep, &gmem->mem_addrs[displ],
                                 NULL == mem_rec->rkeys ? &mem_rec->rkey
@@ -795,6 +797,8 @@ opal_common_ucx_ctx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target)
             return rc;
         }
     }
+
+    assert(NULL != winfo->endpoints[target]);
 
     return OPAL_SUCCESS;
 }
