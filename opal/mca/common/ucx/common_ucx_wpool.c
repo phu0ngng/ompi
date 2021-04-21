@@ -777,7 +777,7 @@ OPAL_DECLSPEC int opal_common_ucx_winfo_flush(opal_common_ucx_winfo_t *winfo, in
     int rc = OPAL_SUCCESS;
 
 #if HAVE_DECL_UCP_EP_FLUSH_NB
-    if (scope == OPAL_COMMON_UCX_SCOPE_EP) {
+    if (scope & OPAL_COMMON_UCX_SCOPE_EP) {
         req = ucp_ep_flush_nb(winfo->endpoints[target], 0, opal_common_ucx_empty_complete_cb);
     } else {
         req = ucp_worker_flush_nb(winfo->worker, 0, opal_common_ucx_empty_complete_cb);
@@ -796,7 +796,7 @@ OPAL_DECLSPEC int opal_common_ucx_winfo_flush(opal_common_ucx_winfo_t *winfo, in
     switch (type) {
     case OPAL_COMMON_UCX_FLUSH_NB_PREFERRED:
     case OPAL_COMMON_UCX_FLUSH_B:
-        if (scope == OPAL_COMMON_UCX_SCOPE_EP) {
+        if (scope & OPAL_COMMON_UCX_SCOPE_EP) {
             status = ucp_ep_flush(winfo->endpoints[target]);
         } else {
             status = ucp_worker_flush(winfo->worker);
@@ -820,6 +820,21 @@ OPAL_DECLSPEC int opal_common_ucx_wpmem_flush(opal_common_ucx_wpmem_t *mem,
         return OPAL_SUCCESS;
     }
 
+    if (scope & OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT) {
+        opal_common_ucx_winfo_t *winfo;
+        _ctx_record_t* ctx_rec = _tlocal_get_ctx_rec(mem->ctx->tls_key);
+        if (NULL != ctx_rec) {
+            winfo = ctx_rec->winfo;
+            rc = opal_common_ucx_winfo_flush(winfo, target, OPAL_COMMON_UCX_FLUSH_B,
+                                             scope & ~(OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT), NULL);
+        }
+        return rc;
+    } else if (scope & OPAL_COMMON_UCX_SCOPE_DFLTWINFO_SHIFT) {
+        opal_common_ucx_winfo_t *winfo = mem->ctx->wpool->dflt_winfo;
+        return opal_common_ucx_winfo_flush(winfo, target, OPAL_COMMON_UCX_FLUSH_B,
+                                           scope & ~(OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT), NULL);
+    }
+
     ctx = mem->ctx;
     opal_mutex_lock(&ctx->mutex);
 
@@ -839,6 +854,8 @@ OPAL_DECLSPEC int opal_common_ucx_wpmem_flush(opal_common_ucx_wpmem_t *mem,
             winfo->global_inflight_ops -= winfo->inflight_ops[target];
             winfo->inflight_ops[target] = 0;
             break;
+        default:
+            assert(NULL);
         }
         opal_mutex_unlock(&winfo->mutex);
 
@@ -852,9 +869,23 @@ OPAL_DECLSPEC int opal_common_ucx_wpmem_flush(opal_common_ucx_wpmem_t *mem,
     return rc;
 }
 
-OPAL_DECLSPEC int opal_common_ucx_wpmem_fence(opal_common_ucx_wpmem_t *mem)
+int opal_common_ucx_wpmem_fence(opal_common_ucx_wpmem_t *mem,
+                                int target,
+                                bool thread_local,
+                                bool use_dftl_winfo)
 {
-    /* TODO */
+    if (use_dftl_winfo) {
+        /* TODO: need locking here? */
+        ucp_worker_fence(mem->ctx->wpool->dflt_winfo->worker);
+    } else if (!opal_using_threads() || thread_local) {
+        _ctx_record_t* ctx_rec = _tlocal_get_ctx_rec(mem->ctx->tls_key);
+        if (NULL != ctx_rec) {
+            ucp_worker_fence(ctx_rec->winfo->worker);
+        }
+    } else {
+        /* multiple threads, need a flush to the target */
+        opal_common_ucx_wpmem_flush(mem, OPAL_COMMON_UCX_SCOPE_EP, target);
+    }
     return OPAL_SUCCESS;
 }
 

@@ -354,6 +354,9 @@ typedef int (*ompi_osc_base_module_flush_local_fn_t)(int target,
 typedef int (*ompi_osc_base_module_flush_local_all_fn_t)(struct ompi_win_t *win);
 
 
+typedef int (*ompi_osc_base_module_dup_fn_t)(struct ompi_win_t *parentwin,
+                                             struct ompi_win_t *win,
+                                             struct opal_info_t *info);
 
 /* ******************************************************************** */
 
@@ -404,6 +407,9 @@ struct ompi_osc_base_module_3_0_0_t {
     ompi_osc_base_module_flush_all_fn_t osc_flush_all;
     ompi_osc_base_module_flush_local_fn_t osc_flush_local;
     ompi_osc_base_module_flush_local_all_fn_t osc_flush_local_all;
+
+    /** Duplicate an existing window with info */
+    ompi_osc_base_module_dup_fn_t osc_dup;
 };
 typedef struct ompi_osc_base_module_3_0_0_t ompi_osc_base_module_3_0_0_t;
 typedef ompi_osc_base_module_3_0_0_t ompi_osc_base_module_t;

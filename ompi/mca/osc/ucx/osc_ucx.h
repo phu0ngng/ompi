@@ -93,6 +93,7 @@ typedef struct ompi_osc_ucx_state {
 
 typedef struct ompi_osc_ucx_module {
     ompi_osc_base_module_t super;
+    struct ompi_osc_ucx_module *parent; // used in duplicated windows
     struct ompi_communicator_t *comm;
     int flavor;
     size_t size;
@@ -117,6 +118,8 @@ typedef struct ompi_osc_ucx_module {
     bool lock_all_is_nocheck;
     bool no_locks;
     bool acc_single_intrinsic;
+    bool rma_scope_thread;
+    bool rma_ordered;
     opal_common_ucx_ctx_t *ctx;
     opal_common_ucx_wpmem_t *mem;
     opal_common_ucx_wpmem_t *state_mem;
@@ -136,6 +139,16 @@ typedef struct ompi_osc_ucx_lock {
 
 #define OSC_UCX_GET_EP(comm_, rank_) (ompi_comm_peer_lookup(comm_, rank_)->proc_endpoints[OMPI_PROC_ENDPOINT_TAG_UCX])
 #define OSC_UCX_GET_DISP(module_, rank_) ((module_->disp_unit < 0) ? module_->disp_units[rank_] : module_->disp_unit)
+
+static
+ompi_osc_ucx_module_t* ompi_osc_ucx_module_get_parent(ompi_osc_ucx_module_t* module)
+{
+    ompi_osc_ucx_module_t* parent = module;
+    while (NULL != parent->parent) {
+        parent = parent->parent;
+    }
+    return parent;
+}
 
 int ompi_osc_ucx_win_attach(struct ompi_win_t *win, void *base, size_t len);
 int ompi_osc_ucx_win_detach(struct ompi_win_t *win, const void *base);

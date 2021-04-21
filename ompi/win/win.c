@@ -140,10 +140,9 @@ int ompi_win_finalize(void)
     return OMPI_SUCCESS;
 }
 
-static int alloc_window(struct ompi_communicator_t *comm, opal_info_t *info, int flavor, ompi_win_t **win_out)
+static int alloc_window(struct ompi_group_t *group, opal_info_t *info, int flavor, ompi_win_t **win_out)
 {
     ompi_win_t *win;
-    ompi_group_t *group;
     int acc_ops, acc_order, flag, ret;
 
     /* create the object */
@@ -176,7 +175,6 @@ static int alloc_window(struct ompi_communicator_t *comm, opal_info_t *info, int
     win->w_flavor = flavor;
 
     /* setup data that is independent of osc component */
-    group = comm->c_local_group;
     OBJ_RETAIN(group);
     win->w_group = group;
 
@@ -238,7 +236,7 @@ ompi_win_create(void *base, size_t size,
     int model;
     int ret;
 
-    ret = alloc_window (comm, info, MPI_WIN_FLAVOR_CREATE, &win);
+    ret = alloc_window (comm->c_local_group, info, MPI_WIN_FLAVOR_CREATE, &win);
     if (OMPI_SUCCESS != ret) {
         return ret;
     }
@@ -270,7 +268,7 @@ ompi_win_allocate(size_t size, int disp_unit, opal_info_t *info,
     int ret;
     void *base;
 
-    ret = alloc_window (comm, info, MPI_WIN_FLAVOR_ALLOCATE, &win);
+    ret = alloc_window (comm->c_local_group, info, MPI_WIN_FLAVOR_ALLOCATE, &win);
     if (OMPI_SUCCESS != ret) {
         return ret;
     }
@@ -293,6 +291,63 @@ ompi_win_allocate(size_t size, int disp_unit, opal_info_t *info,
     return OMPI_SUCCESS;
 }
 
+int ompi_win_duplicate(ompi_win_t *parentwin, opal_info_t *info, ompi_win_t **newwin)
+{
+    int ret;
+    ompi_win_t *win;
+
+    if (NULL == parentwin->w_osc_module->osc_dup) {
+        return OMPI_ERR_NOT_SUPPORTED;
+    }
+
+    ret = alloc_window (parentwin->w_group, info, MPI_WIN_FLAVOR_ALLOCATE, &win);
+    if (OMPI_SUCCESS != ret) {
+        return ret;
+    }
+
+
+    parentwin->w_osc_module->osc_dup(parentwin, win, info);
+
+    int flag;
+    void *base;
+    int *disp_unit_ptr;
+    int *flavor_ptr;
+    int *model_ptr;
+    MPI_Aint size;
+
+    /* Query the old window's attributes and set them on the new window */
+    ret = ompi_attr_get_c(win->w_keyhash, MPI_WIN_BASE, &base, &flag);
+    if (OMPI_SUCCESS != ret) return ret;
+
+    ret = ompi_attr_get_aint(win->w_keyhash,
+                             MPI_WIN_SIZE, &size, &flag);
+    if (OMPI_SUCCESS != ret) return ret;
+
+    ret = ompi_attr_get_c(win->w_keyhash,
+                          MPI_WIN_DISP_UNIT, (void**)&disp_unit_ptr,
+                          &flag);
+    if (OMPI_SUCCESS != ret) return ret;
+
+    ret = ompi_attr_get_c(win->w_keyhash,
+                          MPI_WIN_CREATE_FLAVOR, (void**)&flavor_ptr, &flag);
+    if (OMPI_SUCCESS != ret) return ret;
+
+    ret = ompi_attr_get_c(win->w_keyhash,
+                          MPI_WIN_MODEL, (void**)&model_ptr, &flag);
+    if (OMPI_SUCCESS != ret) return ret;
+
+
+    ret = config_window(base, size, *disp_unit_ptr, *flavor_ptr, *model_ptr, win);
+    if (OMPI_SUCCESS != ret) {
+        OBJ_RELEASE(win);
+        return ret;
+    }
+
+    *newwin = win;
+
+    return OMPI_SUCCESS;
+}
+
 
 int
 ompi_win_allocate_shared(size_t size, int disp_unit, opal_info_t *info,
@@ -303,7 +358,7 @@ ompi_win_allocate_shared(size_t size, int disp_unit, opal_info_t *info,
     int ret;
     void *base;
 
-    ret = alloc_window (comm, info, MPI_WIN_FLAVOR_SHARED, &win);
+    ret = alloc_window (comm->c_local_group, info, MPI_WIN_FLAVOR_SHARED, &win);
     if (OMPI_SUCCESS != ret) {
         return ret;
     }
@@ -334,7 +389,7 @@ ompi_win_create_dynamic(opal_info_t *info, ompi_communicator_t *comm, ompi_win_t
     int model;
     int ret;
 
-    ret = alloc_window (comm, info, MPI_WIN_FLAVOR_DYNAMIC, &win);
+    ret = alloc_window (comm->c_local_group, info, MPI_WIN_FLAVOR_DYNAMIC, &win);
     if (OMPI_SUCCESS != ret) {
         return ret;
     }

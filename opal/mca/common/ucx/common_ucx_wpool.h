@@ -31,6 +31,7 @@ BEGIN_C_DECLS
 
 /* fordward declaration */
 typedef struct opal_common_ucx_winfo opal_common_ucx_winfo_t;
+typedef struct _mem_record _mem_record_t;
 
 /* Worker pool is a global object that that is allocated per component or can be
  * shared between multiple compatible components.
@@ -101,6 +102,8 @@ typedef struct {
     char *mem_addrs;
     int *mem_displs;
 
+    _mem_record_t *dflt_mem_rec; // used in conjunction with the ctx dflt_winfo
+
     /* A list of mem records
      * We need to kepp trakc o fallocated memory records so that we can free them at the end
      * if a thread fails to release the memory record */
@@ -144,9 +147,17 @@ typedef struct {
 
 typedef enum { OPAL_COMMON_UCX_PUT, OPAL_COMMON_UCX_GET } opal_common_ucx_op_t;
 
+
+#define OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT    (1<<16)
+#define OPAL_COMMON_UCX_SCOPE_DFLTWINFO_SHIFT (1<<24)
+
 typedef enum {
-    OPAL_COMMON_UCX_SCOPE_EP,
-    OPAL_COMMON_UCX_SCOPE_WORKER
+    OPAL_COMMON_UCX_SCOPE_EP  = 1 << 0,
+    OPAL_COMMON_UCX_SCOPE_WORKER = 1 << 1,
+    OPAL_COMMON_UCX_SCOPE_THREAD_EP = OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT + OPAL_COMMON_UCX_SCOPE_EP,
+    OPAL_COMMON_UCX_SCOPE_THREAD_WORKER = OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT + OPAL_COMMON_UCX_SCOPE_WORKER,
+    OPAL_COMMON_UCX_SCOPE_DFLTWINFO_EP = OPAL_COMMON_UCX_SCOPE_DFLTWINFO_SHIFT + OPAL_COMMON_UCX_SCOPE_EP,
+    OPAL_COMMON_UCX_SCOPE_DFLTWINFO_WORKER = OPAL_COMMON_UCX_SCOPE_DFLTWINFO_SHIFT + OPAL_COMMON_UCX_SCOPE_WORKER,
 } opal_common_ucx_flush_scope_t;
 
 typedef enum {
@@ -167,13 +178,13 @@ typedef struct {
 } _ctx_record_t;
 OBJ_CLASS_DECLARATION(_ctx_record_t);
 
-typedef struct {
+struct _mem_record {
     opal_list_item_t super;
     opal_common_ucx_wpmem_t *gmem;
     opal_common_ucx_winfo_t *winfo;
     ucp_rkey_h *rkeys;
     _ctx_record_t *ctx_rec;
-} _mem_record_t;
+};
 OBJ_CLASS_DECLARATION(_mem_record_t);
 
 typedef int (*opal_common_ucx_exchange_func_t)(void *my_info, size_t my_info_len, char **recv_info,
@@ -200,13 +211,72 @@ OPAL_DECLSPEC void opal_common_ucx_req_completion(void *request, ucs_status_t st
 
 /* Managing thread local storage */
 OPAL_DECLSPEC int opal_common_ucx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target);
-static inline int opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
+static inline int opal_common_ucx_tlocal_fetch_dflt_win(opal_common_ucx_wpmem_t *mem, int target,
+                                                        ucp_ep_h *_ep, ucp_rkey_h *_rkey,
+                                                        opal_common_ucx_winfo_t **_winfo)
+{
+    opal_common_ucx_winfo_t *winfo = mem->ctx->wpool->dflt_winfo;
+
+    opal_mutex_lock(&winfo->mutex);
+
+    if (NULL == winfo->endpoints[target]) {
+        /* connect the endpoint */
+        ucp_ep_params_t ep_params;
+        int displ = mem->ctx->recv_worker_displs[target];
+        ep_params.address = (ucp_address_t *) &(mem->ctx->recv_worker_addrs[displ]);
+        ucs_status_t status;
+        status = ucp_ep_create(winfo->worker, &ep_params, &winfo->endpoints[target]);
+
+        if (status != UCS_OK) {
+            MCA_COMMON_UCX_VERBOSE(1, "ucp_ep_create failed: %d", status);
+            opal_mutex_unlock(&winfo->mutex);
+            return OPAL_ERROR;
+        }
+    }
+
+    if (NULL == mem->dflt_mem_rec || NULL == mem->dflt_mem_rec->rkeys[target]) {
+        opal_mutex_lock(&mem->mutex);
+        if (NULL == mem->dflt_mem_rec) {
+            _mem_record_t *mem_rec = OBJ_NEW(_mem_record_t);
+            mem_rec->gmem = mem;
+            mem_rec->ctx_rec = NULL; // not needed
+            mem_rec->winfo = winfo;
+            mem_rec->rkeys = calloc(mem->ctx->comm_size, sizeof(*mem_rec->rkeys));
+            mem->dflt_mem_rec = mem_rec;
+        }
+
+        if (NULL == mem->dflt_mem_rec->rkeys[target]) {
+            ucs_status_t status;
+            int displ = mem->mem_displs[target];
+            status = ucp_ep_rkey_unpack(winfo->endpoints[target], &mem->mem_addrs[displ], &mem->dflt_mem_rec->rkeys[target]);
+            if (status != UCS_OK) {
+                opal_mutex_unlock(&mem->mutex);
+                MCA_COMMON_UCX_VERBOSE(1, "ucp_ep_create failed: %d", status);
+                opal_mutex_unlock(&winfo->mutex);
+                return OPAL_ERROR;
+            }
+        }
+        opal_mutex_unlock(&mem->mutex);
+    }
+    opal_mutex_unlock(&winfo->mutex);
+
+    *_winfo = winfo;
+    *_ep    = winfo->endpoints[target];
+    *_rkey  = mem->dflt_mem_rec->rkeys[target];
+    return OPAL_SUCCESS;
+}
+
+static inline int opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target, bool use_dftl_winfo,
                                                ucp_ep_h *_ep, ucp_rkey_h *_rkey,
                                                opal_common_ucx_winfo_t **_winfo)
 {
     _mem_record_t *mem_rec = NULL;
     int is_ready;
     int rc = OPAL_SUCCESS;
+
+    if (use_dftl_winfo) {
+        return opal_common_ucx_tlocal_fetch_dflt_win(mem, target, _ep, _rkey, _winfo);
+    }
 
     /* First check the fast-path */
     rc = opal_tsd_tracked_key_get(&mem->tls_key, (void **) &mem_rec);
@@ -247,7 +317,10 @@ OPAL_DECLSPEC void opal_common_ucx_wpmem_free(opal_common_ucx_wpmem_t *mem);
 
 OPAL_DECLSPEC int opal_common_ucx_wpmem_flush(opal_common_ucx_wpmem_t *mem,
                                               opal_common_ucx_flush_scope_t scope, int target);
-OPAL_DECLSPEC int opal_common_ucx_wpmem_fence(opal_common_ucx_wpmem_t *mem);
+OPAL_DECLSPEC int opal_common_ucx_wpmem_fence(opal_common_ucx_wpmem_t *mem,
+                                              int target,
+                                              bool thread_local,
+                                              bool use_dftl_winfo);
 
 OPAL_DECLSPEC int opal_common_ucx_winfo_flush(opal_common_ucx_winfo_t *winfo, int target,
                                               opal_common_ucx_flush_type_t type,
@@ -292,13 +365,16 @@ static inline int opal_common_ucx_wait_request_mt(ucs_status_ptr_t request, cons
             ctr--;
         } while (ctr > 0 && ret > 0 && status == UCS_INPROGRESS);
         opal_mutex_unlock(&winfo->mutex);
-        opal_progress();
+        if (status != UCS_INPROGRESS) {
+            opal_progress();
+        }
     } while (status == UCS_INPROGRESS);
 
     return OPAL_SUCCESS;
 }
 
-static inline int _periodical_flush_nb(opal_common_ucx_wpmem_t *mem, opal_common_ucx_winfo_t *winfo,
+static inline int _periodical_flush_nb(opal_common_ucx_wpmem_t *mem,
+                                       opal_common_ucx_winfo_t *winfo,
                                        int target)
 {
     int rc = OPAL_SUCCESS;
@@ -346,7 +422,8 @@ static inline int _periodical_flush_nb(opal_common_ucx_wpmem_t *mem, opal_common
 
 static inline int opal_common_ucx_wpmem_putget(opal_common_ucx_wpmem_t *mem,
                                                opal_common_ucx_op_t op, int target, void *buffer,
-                                               size_t len, uint64_t rem_addr)
+                                               size_t len, uint64_t rem_addr,
+                                               bool thread_scope, bool use_dftl_winfo)
 {
     ucp_ep_h ep;
     ucp_rkey_h rkey;
@@ -355,14 +432,16 @@ static inline int opal_common_ucx_wpmem_putget(opal_common_ucx_wpmem_t *mem,
     int rc = OPAL_SUCCESS;
     char *called_func = "";
 
-    rc = opal_common_ucx_tlocal_fetch(mem, target, &ep, &rkey, &winfo);
+    rc = opal_common_ucx_tlocal_fetch(mem, target, use_dftl_winfo, &ep, &rkey, &winfo);
     if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
         MCA_COMMON_UCX_VERBOSE(1, "tlocal_fetch failed: %d", rc);
         return rc;
     }
 
     /* Perform the operation */
-    opal_mutex_lock(&winfo->mutex);
+    if (!thread_scope || use_dftl_winfo) {
+        opal_mutex_lock(&winfo->mutex);
+    }
     switch (op) {
     case OPAL_COMMON_UCX_PUT:
         status = ucp_put_nbi(ep, buffer, len, rem_addr, rkey);
@@ -380,20 +459,26 @@ static inline int opal_common_ucx_wpmem_putget(opal_common_ucx_wpmem_t *mem,
         goto out;
     }
 
-    rc = _periodical_flush_nb(mem, winfo, target);
-    if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
-        MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
+    if (!thread_scope || use_dftl_winfo) {
+        rc = _periodical_flush_nb(mem, winfo, target);
+        if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
+            MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
+        }
     }
 
 out:
-    opal_mutex_unlock(&winfo->mutex);
+
+    if (!thread_scope || use_dftl_winfo) {
+        opal_mutex_unlock(&winfo->mutex);
+    }
 
     return rc;
 }
 
 static inline int opal_common_ucx_wpmem_cmpswp(opal_common_ucx_wpmem_t *mem, uint64_t compare,
                                                uint64_t value, int target, void *buffer, size_t len,
-                                               uint64_t rem_addr)
+                                               uint64_t rem_addr,
+                                               bool thread_scope, bool use_dftl_winfo)
 {
     ucp_ep_h ep;
     ucp_rkey_h rkey;
@@ -401,7 +486,7 @@ static inline int opal_common_ucx_wpmem_cmpswp(opal_common_ucx_wpmem_t *mem, uin
     ucs_status_t status;
     int rc = OPAL_SUCCESS;
 
-    rc = opal_common_ucx_tlocal_fetch(mem, target, &ep, &rkey, &winfo);
+    rc = opal_common_ucx_tlocal_fetch(mem, target, use_dftl_winfo, &ep, &rkey, &winfo);
     if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
         MCA_COMMON_UCX_ERROR("opal_common_ucx_tlocal_fetch failed: %d", rc);
         return rc;
@@ -417,10 +502,13 @@ static inline int opal_common_ucx_wpmem_cmpswp(opal_common_ucx_wpmem_t *mem, uin
         goto out;
     }
 
+    /* TODO: this flush is not needed here since we're waiting for completion above */
+#if 0
     rc = _periodical_flush_nb(mem, winfo, target);
     if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
         MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
     }
+#endif // 0
 
 out:
     opal_mutex_unlock(&winfo->mutex);
@@ -432,6 +520,7 @@ static inline int opal_common_ucx_wpmem_cmpswp_nb(opal_common_ucx_wpmem_t *mem, 
                                                   uint64_t value, int target, void *buffer,
                                                   size_t len, uint64_t rem_addr,
                                                   opal_common_ucx_user_req_handler_t user_req_cb,
+                                                  bool thread_scope, bool use_dftl_winfo,
                                                   void *user_req_ptr)
 {
     ucp_ep_h ep;
@@ -440,14 +529,16 @@ static inline int opal_common_ucx_wpmem_cmpswp_nb(opal_common_ucx_wpmem_t *mem, 
     opal_common_ucx_request_t *req;
     int rc = OPAL_SUCCESS;
 
-    rc = opal_common_ucx_tlocal_fetch(mem, target, &ep, &rkey, &winfo);
+    rc = opal_common_ucx_tlocal_fetch(mem, target, use_dftl_winfo, &ep, &rkey, &winfo);
     if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
         MCA_COMMON_UCX_ERROR("opal_common_ucx_tlocal_fetch failed: %d", rc);
         return rc;
     }
 
     /* Perform the operation */
-    opal_mutex_lock(&winfo->mutex);
+    if (!thread_scope || use_dftl_winfo) {
+        opal_mutex_lock(&winfo->mutex);
+    }
     req = opal_common_ucx_atomic_cswap_nb(ep, compare, value, buffer, len, rem_addr, rkey,
                                           opal_common_ucx_req_completion, winfo->worker);
 
@@ -461,19 +552,23 @@ static inline int opal_common_ucx_wpmem_cmpswp_nb(opal_common_ucx_wpmem_t *mem, 
         }
     }
 
-    rc = _periodical_flush_nb(mem, winfo, target);
-    if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
-        MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
+
+    /* TODO: need to track each thread's outstanding operations? */
+    if (!thread_scope || use_dftl_winfo) {
+        rc = _periodical_flush_nb(mem, winfo, target);
+        if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
+            MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
+        }
+
+        opal_mutex_unlock(&winfo->mutex);
     }
-
-    opal_mutex_unlock(&winfo->mutex);
-
     return rc;
 }
 
 static inline int opal_common_ucx_wpmem_post(opal_common_ucx_wpmem_t *mem,
                                              ucp_atomic_post_op_t opcode, uint64_t value,
-                                             int target, size_t len, uint64_t rem_addr)
+                                             int target, size_t len, uint64_t rem_addr,
+                                             bool thread_scope, bool use_dftl_winfo)
 {
     ucp_ep_h ep;
     ucp_rkey_h rkey;
@@ -481,14 +576,16 @@ static inline int opal_common_ucx_wpmem_post(opal_common_ucx_wpmem_t *mem,
     ucs_status_t status;
     int rc = OPAL_SUCCESS;
 
-    rc = opal_common_ucx_tlocal_fetch(mem, target, &ep, &rkey, &winfo);
+    rc = opal_common_ucx_tlocal_fetch(mem, target, use_dftl_winfo, &ep, &rkey, &winfo);
     if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
         MCA_COMMON_UCX_ERROR("tlocal_fetch failed: %d", rc);
         return rc;
     }
 
     /* Perform the operation */
-    opal_mutex_lock(&winfo->mutex);
+    if (!thread_scope || use_dftl_winfo) {
+        opal_mutex_lock(&winfo->mutex);
+    }
     status = ucp_atomic_post(ep, opcode, value, len, rem_addr, rkey);
     if (OPAL_UNLIKELY(status != UCS_OK)) {
         MCA_COMMON_UCX_ERROR("ucp_atomic_post failed: %d", status);
@@ -496,20 +593,25 @@ static inline int opal_common_ucx_wpmem_post(opal_common_ucx_wpmem_t *mem,
         goto out;
     }
 
-    rc = _periodical_flush_nb(mem, winfo, target);
-    if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
-        MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
+    /* TODO: need to track each thread's outstanding operations? */
+    if (!thread_scope || use_dftl_winfo) {
+        rc = _periodical_flush_nb(mem, winfo, target);
+        if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
+            MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
+        }
     }
-
 out:
-    opal_mutex_unlock(&winfo->mutex);
+    if (!thread_scope || use_dftl_winfo) {
+        opal_mutex_unlock(&winfo->mutex);
+    }
     return rc;
 }
 
 static inline int opal_common_ucx_wpmem_fetch(opal_common_ucx_wpmem_t *mem,
                                               ucp_atomic_fetch_op_t opcode, uint64_t value,
                                               int target, void *buffer, size_t len,
-                                              uint64_t rem_addr)
+                                              uint64_t rem_addr,
+                                              bool thread_scope, bool use_dftl_winfo)
 {
     ucp_ep_h ep = NULL;
     ucp_rkey_h rkey = NULL;
@@ -517,7 +619,7 @@ static inline int opal_common_ucx_wpmem_fetch(opal_common_ucx_wpmem_t *mem,
     ucs_status_t status;
     int rc = OPAL_SUCCESS;
 
-    rc = opal_common_ucx_tlocal_fetch(mem, target, &ep, &rkey, &winfo);
+    rc = opal_common_ucx_tlocal_fetch(mem, target, use_dftl_winfo, &ep, &rkey, &winfo);
     if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
         MCA_COMMON_UCX_ERROR("tlocal_fetch failed: %d", rc);
         return rc;
@@ -533,10 +635,13 @@ static inline int opal_common_ucx_wpmem_fetch(opal_common_ucx_wpmem_t *mem,
         goto out;
     }
 
+    /* TODO: this flush is not needed here since we're waiting for completion above */
+#if 0
     rc = _periodical_flush_nb(mem, winfo, target);
     if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
         MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
     }
+#endif // 0
 
 out:
     opal_mutex_unlock(&winfo->mutex);
@@ -549,6 +654,7 @@ static inline int opal_common_ucx_wpmem_fetch_nb(opal_common_ucx_wpmem_t *mem,
                                                  int target, void *buffer, size_t len,
                                                  uint64_t rem_addr,
                                                  opal_common_ucx_user_req_handler_t user_req_cb,
+                                                 bool thread_scope, bool use_dftl_winfo,
                                                  void *user_req_ptr)
 {
     ucp_ep_h ep = NULL;
@@ -557,13 +663,15 @@ static inline int opal_common_ucx_wpmem_fetch_nb(opal_common_ucx_wpmem_t *mem,
     int rc = OPAL_SUCCESS;
     opal_common_ucx_request_t *req;
 
-    rc = opal_common_ucx_tlocal_fetch(mem, target, &ep, &rkey, &winfo);
+    rc = opal_common_ucx_tlocal_fetch(mem, target, use_dftl_winfo, &ep, &rkey, &winfo);
     if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
         MCA_COMMON_UCX_ERROR("tlocal_fetch failed: %d", rc);
         return rc;
     }
     /* Perform the operation */
-    opal_mutex_lock(&winfo->mutex);
+    if (!thread_scope || use_dftl_winfo) {
+        opal_mutex_lock(&winfo->mutex);
+    }
     req = opal_common_ucx_atomic_fetch_nb(ep, opcode, value, buffer, len, rem_addr, rkey,
                                           opal_common_ucx_req_completion, winfo->worker);
     if (UCS_PTR_IS_PTR(req)) {
@@ -576,12 +684,15 @@ static inline int opal_common_ucx_wpmem_fetch_nb(opal_common_ucx_wpmem_t *mem,
         }
     }
 
-    rc = _periodical_flush_nb(mem, winfo, target);
-    if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
-        MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
-    }
+    /* TODO: need to track each thread's outstanding operations? */
+    if (!thread_scope || use_dftl_winfo) {
+        rc = _periodical_flush_nb(mem, winfo, target);
+        if (OPAL_UNLIKELY(OPAL_SUCCESS != rc)) {
+            MCA_COMMON_UCX_VERBOSE(1, "_incr_and_check_inflight_ops failed: %d", rc);
+        }
 
-    opal_mutex_unlock(&winfo->mutex);
+        opal_mutex_unlock(&winfo->mutex);
+    }
 
     return rc;
 }

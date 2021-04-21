@@ -26,7 +26,7 @@ static inline int start_shared(ompi_osc_ucx_module_t *module, int target) {
     while (true) {
         ret = opal_common_ucx_wpmem_fetch(module->state_mem, UCP_ATOMIC_FETCH_OP_FADD, 1,
                                         target, &result_value, sizeof(result_value),
-                                        remote_addr);
+                                        remote_addr, true, false);
         if (OMPI_SUCCESS != ret) {
             return ret;
         }
@@ -35,7 +35,7 @@ static inline int start_shared(ompi_osc_ucx_module_t *module, int target) {
         if (result_value >= TARGET_LOCK_EXCLUSIVE) {
             ret = opal_common_ucx_wpmem_post(module->state_mem,
                                            UCP_ATOMIC_POST_OP_ADD, (-1), target,
-                                           sizeof(uint64_t), remote_addr);
+                                           sizeof(uint64_t), remote_addr, true, false);
             if (OMPI_SUCCESS != ret) {
                 return ret;
             }
@@ -51,7 +51,8 @@ static inline int start_shared(ompi_osc_ucx_module_t *module, int target) {
 static inline int end_shared(ompi_osc_ucx_module_t *module, int target) {
     uint64_t remote_addr = (module->state_addrs)[target] + OSC_UCX_STATE_LOCK_OFFSET;
     return opal_common_ucx_wpmem_post(module->state_mem, UCP_ATOMIC_POST_OP_ADD,
-                                    (-1), target, sizeof(uint64_t), remote_addr);
+                                      (-1), target, sizeof(uint64_t), remote_addr,
+                                      true, false);
 }
 
 static inline int start_exclusive(ompi_osc_ucx_module_t *module, int target) {
@@ -63,7 +64,7 @@ static inline int start_exclusive(ompi_osc_ucx_module_t *module, int target) {
         ret = opal_common_ucx_wpmem_cmpswp(module->state_mem,
                                          TARGET_LOCK_UNLOCKED, TARGET_LOCK_EXCLUSIVE,
                                          target, &result_value, sizeof(result_value),
-                                         remote_addr);
+                                         remote_addr, true, false);
         if (OMPI_SUCCESS != ret) {
             return ret;
         }
@@ -78,7 +79,7 @@ static inline int end_exclusive(ompi_osc_ucx_module_t *module, int target) {
     uint64_t remote_addr = (module->state_addrs)[target] + OSC_UCX_STATE_LOCK_OFFSET;
     return opal_common_ucx_wpmem_post(module->state_mem, UCP_ATOMIC_POST_OP_ADD,
                                       -((int64_t)TARGET_LOCK_EXCLUSIVE), target,
-                                      sizeof(uint64_t), remote_addr);
+                                      sizeof(uint64_t), remote_addr, true, false);
 }
 
 int ompi_osc_ucx_lock(int lock_type, int target, int mpi_assert, struct ompi_win_t *win) {
@@ -153,7 +154,17 @@ int ompi_osc_ucx_unlock(int target, struct ompi_win_t *win) {
     opal_hash_table_remove_value_uint32(&module->outstanding_locks,
                                         (uint32_t)target);
 
-    ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_EP, target);
+    bool use_dflt_winfo = !module->rma_scope_thread && module->rma_ordered;
+
+    opal_common_ucx_flush_scope_t scope = OPAL_COMMON_UCX_SCOPE_EP;
+
+    if (use_dflt_winfo) {
+        scope ^= OPAL_COMMON_UCX_SCOPE_DFLTWINFO_SHIFT;
+    } else if (module->rma_scope_thread) {
+        scope ^= OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT;
+    }
+
+    ret = opal_common_ucx_wpmem_flush(module->mem, scope, target);
     if (ret != OMPI_SUCCESS) {
         return ret;
     }
@@ -225,7 +236,18 @@ int ompi_osc_ucx_unlock_all(struct ompi_win_t *win) {
 
     assert(module->lock_count == 0);
 
-    ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_WORKER, 0);
+    bool use_dflt_winfo = !module->rma_scope_thread && module->rma_ordered;
+
+    opal_common_ucx_flush_scope_t scope = OPAL_COMMON_UCX_SCOPE_WORKER;
+
+    if (use_dflt_winfo) {
+        scope ^= OPAL_COMMON_UCX_SCOPE_DFLTWINFO_SHIFT;
+    } else if (module->rma_scope_thread) {
+        scope ^= OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT;
+    }
+
+
+    ret = opal_common_ucx_wpmem_flush(module->mem, scope, 0);
     if (ret != OMPI_SUCCESS) {
         return ret;
     }
@@ -253,10 +275,16 @@ int ompi_osc_ucx_sync(struct ompi_win_t *win) {
 
     opal_atomic_mb();
 
-    ret = opal_common_ucx_wpmem_fence(module->mem);
+
+    /* TODO[JS]: I don't think MPI_Win_sync entails a fence, need to check this! */
+#if 0
+    bool use_dflt_winfo = !module->rma_scope_thread && module->rma_ordered;
+    ret = opal_common_ucx_wpmem_fence(module->mem, 0,
+                                      module->rma_scope_thread, use_dflt_winfo);
     if (ret != OMPI_SUCCESS) {
         OSC_UCX_VERBOSE(1, "opal_common_ucx_mem_fence failed: %d", ret);
     }
+#endif // 0
 
     return ret;
 }
@@ -270,7 +298,18 @@ int ompi_osc_ucx_flush(int target, struct ompi_win_t *win) {
         return OMPI_ERR_RMA_SYNC;
     }
 
-    ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_EP, target);
+    bool use_dflt_winfo = !module->rma_scope_thread && module->rma_ordered;
+
+    opal_common_ucx_flush_scope_t scope = OPAL_COMMON_UCX_SCOPE_EP;
+
+    if (use_dflt_winfo) {
+        scope ^= OPAL_COMMON_UCX_SCOPE_DFLTWINFO_SHIFT;
+    } else if (module->rma_scope_thread) {
+        scope ^= OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT;
+    }
+
+
+    ret = opal_common_ucx_wpmem_flush(module->mem, scope, target);
     if (ret != OMPI_SUCCESS) {
         return ret;
     }
@@ -287,7 +326,17 @@ int ompi_osc_ucx_flush_all(struct ompi_win_t *win) {
         return OMPI_ERR_RMA_SYNC;
     }
 
-    ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_WORKER, 0);
+    bool use_dflt_winfo = !module->rma_scope_thread && module->rma_ordered;
+
+    opal_common_ucx_flush_scope_t scope = OPAL_COMMON_UCX_SCOPE_WORKER;
+
+    if (use_dflt_winfo) {
+        scope ^= OPAL_COMMON_UCX_SCOPE_DFLTWINFO_SHIFT;
+    } else if (module->rma_scope_thread) {
+        scope ^= OPAL_COMMON_UCX_SCOPE_THREAD_SHIFT;
+    }
+
+    ret = opal_common_ucx_wpmem_flush(module->mem, scope, 0);
     if (ret != OMPI_SUCCESS) {
         return ret;
     }

@@ -48,6 +48,10 @@ static int component_query(struct ompi_win_t *win, void **base, size_t size, int
 static int component_select(struct ompi_win_t *win, void **base, size_t size, int disp_unit,
                             struct ompi_communicator_t *comm, struct opal_info_t *info,
                             int flavor, int *model);
+
+static int component_dup(struct ompi_win_t *parentwin,
+                         struct ompi_win_t *win,
+                         struct opal_info_t *info);
 static void ompi_osc_ucx_unregister_progress(void);
 
 ompi_osc_ucx_component_t mca_osc_ucx_component = {
@@ -112,6 +116,8 @@ ompi_osc_ucx_module_t ompi_osc_ucx_module_template = {
         .osc_flush_all = ompi_osc_ucx_flush_all,
         .osc_flush_local = ompi_osc_ucx_flush_local,
         .osc_flush_local_all = ompi_osc_ucx_flush_local_all,
+
+        .osc_dup = component_dup
     }
 };
 
@@ -400,6 +406,8 @@ select_unlock:
     module->size = size;
     module->no_locks = check_config_value_bool ("no_locks", info);
     module->acc_single_intrinsic = check_config_value_bool ("acc_single_intrinsic", info);
+    module->rma_scope_thread= check_config_value_bool("mpi_win_scope_thread", info);
+    module->rma_ordered = check_config_value_bool("mpi_win_ordered", info);
 
     /* share everyone's displacement units. Only do an allgather if
        strictly necessary, since it requires O(p) state. */
@@ -531,6 +539,96 @@ select_unlock:
     } else {
         win->w_flags |= OMPI_WIN_NO_LOCKS;
     }
+
+    win->w_osc_module = &module->super;
+
+    opal_infosubscribe_subscribe(&win->super, "no_locks", "false", ompi_osc_ucx_set_no_lock_info);
+
+    /* sync with everyone */
+
+    ret = module->comm->c_coll->coll_barrier(module->comm,
+                                             module->comm->c_coll->coll_barrier_module);
+    if (ret != OMPI_SUCCESS) {
+        goto error;
+    }
+
+    return ret;
+
+error:
+    if (module->disp_units) free(module->disp_units);
+    if (module->comm) ompi_comm_free(&module->comm);
+    free(module);
+
+error_nomem:
+    if (env_initialized == true) {
+        opal_common_ucx_wpool_finalize(mca_osc_ucx_component.wpool);
+        OBJ_DESTRUCT(&mca_osc_ucx_component.requests);
+        mca_osc_ucx_component.env_initialized = false;
+    }
+
+    ompi_osc_ucx_unregister_progress();
+    return ret;
+}
+
+
+
+
+static int component_dup(struct ompi_win_t *parentwin, struct ompi_win_t *win, struct opal_info_t *info)
+{
+    ompi_osc_ucx_module_t *module = NULL;
+    char *name = NULL;
+    int ret = OMPI_SUCCESS;
+    bool env_initialized = false;
+
+    /* Account for the number of active "modules" = MPI windows */
+    _osc_ucx_init_lock();
+
+    mca_osc_ucx_component.num_modules++;
+
+    /* If this is the first window to be registered - register the progress
+     * callback
+     */
+    OSC_UCX_ASSERT(mca_osc_ucx_component.num_modules > 0);
+    if (1 == mca_osc_ucx_component.num_modules) {
+        ret = opal_progress_register(progress_callback);
+        if (OMPI_SUCCESS != ret) {
+            OSC_UCX_VERBOSE(1, "opal_progress_register failed: %d", ret);
+            goto select_unlock;
+        }
+    }
+
+select_unlock:
+    _osc_ucx_init_unlock();
+    if (ret) {
+        goto error;
+    }
+
+    /* create module structure */
+    module = (ompi_osc_ucx_module_t *)calloc(1, sizeof(ompi_osc_ucx_module_t));
+    if (module == NULL) {
+        ret = OMPI_ERR_TEMP_OUT_OF_RESOURCE;
+        goto error_nomem;
+    }
+
+    /* fill in the function pointer part */
+    memcpy(module, &ompi_osc_ucx_module_template, sizeof(ompi_osc_base_module_t));
+
+    /* TODO: need to ref-count module to allow parent be destroyed before the children */
+    ompi_osc_ucx_module_t *parent = (ompi_osc_ucx_module_t*) parentwin->w_osc_module;
+
+    module->parent = parent;
+
+    opal_asprintf(&name, "ucx window duplicated from %d", ompi_comm_get_cid(parent->comm));
+    ompi_win_set_name(win, name);
+    free(name);
+
+    module->no_locks = check_config_value_bool ("no_locks", info);
+    module->acc_single_intrinsic = check_config_value_bool ("acc_single_intrinsic", info);
+    module->rma_scope_thread= check_config_value_bool("mpi_win_scope_thread", info);
+    module->rma_ordered = check_config_value_bool("mpi_win_ordered", info);
+
+    /* NOTE: all other fields remain NULL and the communication function will use
+     *       the parent module set above */
 
     win->w_osc_module = &module->super;
 

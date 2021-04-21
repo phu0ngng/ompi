@@ -183,12 +183,12 @@ int ompi_osc_ucx_complete(struct ompi_win_t *win) {
 
         ret = opal_common_ucx_wpmem_post(module->mem, UCP_ATOMIC_POST_OP_ADD,
                                        1, module->start_grp_ranks[i], sizeof(uint64_t),
-                                       remote_addr);
+                                       remote_addr, true, false);
         if (ret != OMPI_SUCCESS) {
             OSC_UCX_VERBOSE(1, "opal_common_ucx_mem_post failed: %d", ret);
         }
 
-        ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_EP,
+        ret = opal_common_ucx_wpmem_flush(module->mem, OPAL_COMMON_UCX_SCOPE_THREAD_EP,
                                         module->start_grp_ranks[i]);
         if (ret != OMPI_SUCCESS) {
             return ret;
@@ -246,7 +246,7 @@ int ompi_osc_ucx_post(struct ompi_group_t *group, int mpi_assert, struct ompi_wi
             /* do fop first to get an post index */
             ret = opal_common_ucx_wpmem_fetch(module->mem, UCP_ATOMIC_FETCH_OP_FADD,
                                             1, ranks_in_win_grp[i], &result,
-                                            sizeof(result), remote_addr);
+                                            sizeof(result), remote_addr, true, false);
             if (ret != OMPI_SUCCESS) {
                 ret = OMPI_ERROR;
                 goto cleanup;
@@ -260,7 +260,7 @@ int ompi_osc_ucx_post(struct ompi_group_t *group, int mpi_assert, struct ompi_wi
             do {
                 ret = opal_common_ucx_wpmem_cmpswp(module->mem, 0, result,
                                                  myrank + 1, &result, sizeof(result),
-                                                 remote_addr);
+                                                 remote_addr, true, false);
                 if (ret != OMPI_SUCCESS) {
                     ret = OMPI_ERROR;
                     goto cleanup;
