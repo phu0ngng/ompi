@@ -183,6 +183,25 @@ static int component_register(void) {
                                            MCA_BASE_VAR_SCOPE_GROUP, &mca_osc_ucx_component.acc_single_intrinsic);
     free(description_str);
 
+
+    mca_osc_ucx_component.rma_scope_thread = false;
+    opal_asprintf(&description_str, "Scope flush operations to operations issued by the current thread (default: %s)",
+             mca_osc_ucx_component.rma_scope_thread  ? "true" : "false");
+    (void) mca_base_component_var_register(&mca_osc_ucx_component.super.osc_version, "mpi_win_scope_thread",
+                                           description_str, MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0, OPAL_INFO_LVL_5,
+                                           MCA_BASE_VAR_SCOPE_GROUP, &mca_osc_ucx_component.rma_scope_thread);
+    free(description_str);
+
+
+    mca_osc_ucx_component.rma_ordered = false;
+    opal_asprintf(&description_str, "Whether RMA operations should be ordered (default: %s)",
+             mca_osc_ucx_component.rma_ordered  ? "true" : "false");
+    (void) mca_base_component_var_register(&mca_osc_ucx_component.super.osc_version, "mpi_win_ordered",
+                                           description_str, MCA_BASE_VAR_TYPE_BOOL, NULL, 0, 0, OPAL_INFO_LVL_5,
+                                           MCA_BASE_VAR_SCOPE_GROUP, &mca_osc_ucx_component.rma_ordered);
+    free(description_str);
+
+
     opal_common_ucx_mca_var_register(&mca_osc_ucx_component.super.osc_version);
 
     return OMPI_SUCCESS;

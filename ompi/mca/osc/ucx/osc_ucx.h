@@ -35,6 +35,8 @@ typedef struct ompi_osc_ucx_component {
     int num_modules;
     bool no_locks; /* Default value of the no_locks info key for new windows */
     bool acc_single_intrinsic;
+    bool rma_scope_thread;
+    bool rma_ordered;
     unsigned int priority;
 } ompi_osc_ucx_component_t;
 
