@@ -275,23 +275,25 @@ OPAL_DECLSPEC int opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
 
     bool progress_dflt_worker = true;
     OPAL_LIST_FOREACH_SAFE (winfo, next, &wpool->active_workers, opal_common_ucx_winfo_t) {
+        if (winfo == wpool->dflt_winfo) {
+            continue; // will be handled below
+        }
         if (0 != opal_mutex_trylock(&winfo->mutex)) {
             continue;
         }
-        do {
+        //do {
             if (winfo == wpool->dflt_winfo) {
                 progress_dflt_worker = false;
             }
             progressed = ucp_worker_progress(winfo->worker);
             completed += progressed;
-        } while (progressed);
+        //} while (progressed);
         opal_mutex_unlock(&winfo->mutex);
     }
     opal_mutex_unlock(&wpool->mutex);
 
-    if (progress_dflt_worker) {
+    if (0 != opal_mutex_trylock(&wpool->dflt_winfo->mutex)) {
         /* make sure to progress at least some */
-        opal_mutex_lock(&wpool->dflt_winfo->mutex);
         completed += ucp_worker_progress(wpool->dflt_winfo->worker);
         opal_mutex_unlock(&wpool->dflt_winfo->mutex);
     }
