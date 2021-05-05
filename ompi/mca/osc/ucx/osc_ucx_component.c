@@ -192,10 +192,11 @@ static int component_register(void) {
 }
 
 static int progress_callback(void) {
+    int rc = 0;
     if (mca_osc_ucx_component.wpool != NULL) {
-        opal_common_ucx_wpool_progress(mca_osc_ucx_component.wpool);
+        rc = opal_common_ucx_wpool_progress(mca_osc_ucx_component.wpool);
     }
-    return 0;
+    return rc;
 }
 
 static int component_init(bool enable_progress_threads, bool enable_mpi_threads) {

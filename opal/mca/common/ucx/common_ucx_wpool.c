@@ -290,7 +290,6 @@ OPAL_DECLSPEC int opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
 
     /* make sure to progress the default winfo */
     completed += ucp_worker_progress(wpool->dflt_winfo->worker);
-    opal_mutex_unlock(&wpool->dflt_winfo->mutex);
     return completed;
 }
 
