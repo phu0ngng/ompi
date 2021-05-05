@@ -147,6 +147,7 @@ struct opal_common_ucx_winfo {
     size_t comm_size;
     short *inflight_ops;
     short global_inflight_ops;
+    bool has_dflt_worker;
     ucs_status_ptr_t inflight_req;
 };
 OBJ_CLASS_DECLARATION(opal_common_ucx_winfo_t);
@@ -224,6 +225,8 @@ OPAL_DECLSPEC void opal_common_ucx_req_completion(void *request, ucs_status_t st
 OPAL_DECLSPEC int opal_common_ucx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target);
 
 OPAL_DECLSPEC int opal_common_ucx_ctx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target);
+
+OPAL_DECLSPEC int opal_common_ucx_ctx_set_dflt_worker(ucp_worker_h dflt_worker);
 
 static inline int
 opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,
