@@ -47,6 +47,7 @@ typedef struct {
     opal_common_ucx_winfo_t *dflt_winfo;
     ucp_address_t *recv_waddr;
     size_t recv_waddr_len;
+    bool mt_enable;
 
     /* Bookkeeping information */
     opal_list_t idle_workers;

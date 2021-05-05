@@ -189,6 +189,7 @@ OPAL_DECLSPEC int opal_common_ucx_wpool_init(opal_common_ucx_wpool_t *wpool, int
         goto err_worker_create;
     }
     wpool->dflt_winfo = winfo;
+    wpool->mt_enable = enable_mt;
     OBJ_RETAIN(wpool->dflt_winfo);
 
     status = ucp_worker_get_address(wpool->dflt_winfo->worker, &wpool->recv_waddr,
@@ -263,34 +264,30 @@ void opal_common_ucx_wpool_finalize(opal_common_ucx_wpool_t *wpool)
 
 OPAL_DECLSPEC int opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
 {
-    opal_common_ucx_winfo_t *winfo = NULL, *next = NULL;
+    opal_common_ucx_winfo_t *winfo = NULL;
     int completed = 0, progressed = 0;
 
     /* Go over all active workers and progress them
      * TODO: may want to have some partitioning to progress only part of
      * workers */
-    if (0 != opal_mutex_trylock(&wpool->mutex)) {
+    if (wpool->mt_enable && 0 != opal_mutex_trylock(&wpool->mutex)) {
         return completed;
     }
 
     bool progress_dflt_worker = true;
-    OPAL_LIST_FOREACH_SAFE (winfo, next, &wpool->active_workers, opal_common_ucx_winfo_t) {
+    OPAL_LIST_FOREACH (winfo, &wpool->active_workers, opal_common_ucx_winfo_t) {
         if (winfo == wpool->dflt_winfo) {
             continue; // will be handled below
         }
-        if (0 != opal_mutex_trylock(&winfo->mutex)) {
-            continue;
+        if (winfo == wpool->dflt_winfo) {
+            progress_dflt_worker = false;
         }
-        //do {
-            if (winfo == wpool->dflt_winfo) {
-                progress_dflt_worker = false;
-            }
-            progressed = ucp_worker_progress(winfo->worker);
-            completed += progressed;
-        //} while (progressed);
-        opal_mutex_unlock(&winfo->mutex);
+        progressed = ucp_worker_progress(winfo->worker);
+        completed += progressed;
     }
-    opal_mutex_unlock(&wpool->mutex);
+    if (wpool->mt_enable) {
+        opal_mutex_unlock(&wpool->mutex);
+    }
 
     if (0 != opal_mutex_trylock(&wpool->dflt_winfo->mutex)) {
         /* make sure to progress at least some */
