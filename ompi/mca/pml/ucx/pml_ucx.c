@@ -28,8 +28,6 @@
 #endif /* OPAL_CUDA_SUPPORT */
 #include "pml_ucx_request.h"
 
-#include "opal/mca/common/ucx/common_ucx_wpool.h"
-
 #include <inttypes.h>
 
 
@@ -352,8 +350,6 @@ int mca_pml_ucx_init(int enable_mpi_threads)
     mca_pml_ucx_completed_request_init(&ompi_pml_ucx.completed_send_req);
 
     opal_progress_register(mca_pml_ucx_progress);
-
-    opal_common_ucx_ctx_set_dflt_worker(ompi_pml_ucx.ucp_worker);
 
     PML_UCX_VERBOSE(2, "created ucp context %p, worker %p",
                     (void *)ompi_pml_ucx.ucp_context,

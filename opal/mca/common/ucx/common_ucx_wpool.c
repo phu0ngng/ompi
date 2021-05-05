@@ -42,15 +42,6 @@ static void _tlocal_mem_rec_cleanup(_mem_record_t *mem_rec);
 static void _ctx_rec_destructor(void *arg);
 static void _mem_rec_destructor(void *arg);
 
-
-static ucp_worker_h common_ucx_wpool_dflt_worker = NULL;
-
-
-int opal_common_ucx_ctx_set_dflt_worker(ucp_worker_h dflt_worker)
-{
-    common_ucx_wpool_dflt_worker = dflt_worker;
-}
-
 /* -----------------------------------------------------------------------------
  * Worker information (winfo) management functionality
  *----------------------------------------------------------------------------*/
@@ -116,9 +107,7 @@ static void _winfo_destructor(opal_common_ucx_winfo_t *winfo)
     winfo->comm_size = 0;
 
     OBJ_DESTRUCT(&winfo->mutex);
-    if (!winfo->has_dflt_worker) {
-        ucp_worker_destroy(winfo->worker);
-    }
+    ucp_worker_destroy(winfo->worker);
 }
 
 /* -----------------------------------------------------------------------------
@@ -199,17 +188,6 @@ OPAL_DECLSPEC int opal_common_ucx_wpool_init(opal_common_ucx_wpool_t *wpool, int
         rc = OPAL_ERROR;
         goto err_worker_create;
     }
-
-    if (NULL != common_ucx_wpool_dflt_worker) {
-        /*
-         * free the allocated and use the provided default worker
-         * this default worker may be provided by the UCX pml
-         * TODO: make sure progressing is thread-safe!
-         */
-        ucp_worker_destroy(winfo->worker);
-        winfo->worker = common_ucx_wpool_dflt_worker;
-        winfo->has_dflt_worker = true;
-    }
     wpool->dflt_winfo = winfo;
     OBJ_RETAIN(wpool->dflt_winfo);
 
@@ -285,7 +263,7 @@ void opal_common_ucx_wpool_finalize(opal_common_ucx_wpool_t *wpool)
 
 OPAL_DECLSPEC int opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
 {
-    opal_common_ucx_winfo_t *winfo = NULL;
+    opal_common_ucx_winfo_t *winfo = NULL, *next = NULL;
     int completed = 0, progressed = 0;
 
     /* Go over all active workers and progress them
@@ -295,22 +273,26 @@ OPAL_DECLSPEC int opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
         return completed;
     }
 
-    OPAL_LIST_FOREACH (winfo, &wpool->active_workers, opal_common_ucx_winfo_t) {
+    bool progress_dflt_worker = true;
+    OPAL_LIST_FOREACH_SAFE (winfo, next, &wpool->active_workers, opal_common_ucx_winfo_t) {
         if (winfo == wpool->dflt_winfo) {
             continue; // will be handled below
         }
         if (0 != opal_mutex_trylock(&winfo->mutex)) {
             continue;
         }
-        progressed = ucp_worker_progress(winfo->worker);
-        completed += progressed;
+        //do {
+            if (winfo == wpool->dflt_winfo) {
+                progress_dflt_worker = false;
+            }
+            progressed = ucp_worker_progress(winfo->worker);
+            completed += progressed;
+        //} while (progressed);
         opal_mutex_unlock(&winfo->mutex);
     }
     opal_mutex_unlock(&wpool->mutex);
 
-    /* if we are provided a default worker we rely on the provider to progress it */
-    if (!wpool->dflt_winfo->has_dflt_worker
-        && 0 != opal_mutex_trylock(&wpool->dflt_winfo->mutex)) {
+    if (0 != opal_mutex_trylock(&wpool->dflt_winfo->mutex)) {
         /* make sure to progress at least some */
         completed += ucp_worker_progress(wpool->dflt_winfo->worker);
         opal_mutex_unlock(&wpool->dflt_winfo->mutex);
