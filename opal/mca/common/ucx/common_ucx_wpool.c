@@ -265,35 +265,32 @@ void opal_common_ucx_wpool_finalize(opal_common_ucx_wpool_t *wpool)
 OPAL_DECLSPEC int opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
 {
     opal_common_ucx_winfo_t *winfo = NULL;
-    int completed = 0, progressed = 0;
+    int completed = 0;
 
     /* Go over all active workers and progress them
      * TODO: may want to have some partitioning to progress only part of
      * workers */
-    if (wpool->mt_enable && 0 != opal_mutex_trylock(&wpool->mutex)) {
-        return completed;
+
+    /* the default winfo will always be the first active */
+    if (opal_list_get_size(&wpool->active_workers) > 1) {
+        if (wpool->mt_enable && 0 != opal_mutex_trylock(&wpool->mutex)) {
+            return completed;
+        }
+
+        OPAL_LIST_FOREACH (winfo, &wpool->active_workers, opal_common_ucx_winfo_t) {
+            if (winfo == wpool->dflt_winfo) {
+                continue; // will be handled below
+            }
+            completed += ucp_worker_progress(winfo->worker);
+        }
+        if (wpool->mt_enable) {
+            opal_mutex_unlock(&wpool->mutex);
+        }
     }
 
-    bool progress_dflt_worker = true;
-    OPAL_LIST_FOREACH (winfo, &wpool->active_workers, opal_common_ucx_winfo_t) {
-        if (winfo == wpool->dflt_winfo) {
-            continue; // will be handled below
-        }
-        if (winfo == wpool->dflt_winfo) {
-            progress_dflt_worker = false;
-        }
-        progressed = ucp_worker_progress(winfo->worker);
-        completed += progressed;
-    }
-    if (wpool->mt_enable) {
-        opal_mutex_unlock(&wpool->mutex);
-    }
-
-    if (0 != opal_mutex_trylock(&wpool->dflt_winfo->mutex)) {
-        /* make sure to progress at least some */
-        completed += ucp_worker_progress(wpool->dflt_winfo->worker);
-        opal_mutex_unlock(&wpool->dflt_winfo->mutex);
-    }
+    /* make sure to progress the default winfo */
+    completed += ucp_worker_progress(wpool->dflt_winfo->worker);
+    opal_mutex_unlock(&wpool->dflt_winfo->mutex);
     return completed;
 }
 
