@@ -359,7 +359,6 @@ static inline int opal_common_ucx_wait_request_mt(ucs_status_ptr_t request, cons
 
     do {
         ctr = opal_common_ucx.progress_iterations;
-        opal_mutex_lock(&winfo->mutex);
         do {
             ret = ucp_worker_progress(winfo->worker);
             status = opal_common_ucx_request_status(request);
@@ -369,14 +368,12 @@ static inline int opal_common_ucx_wait_request_mt(ucs_status_ptr_t request, cons
                     MCA_COMMON_UCX_VERBOSE(1, "%s failed: %d, %s", msg ? msg : __func__,
                                            UCS_PTR_STATUS(request),
                                            ucs_status_string(UCS_PTR_STATUS(request)));
-                    opal_mutex_unlock(&winfo->mutex);
                     return OPAL_ERROR;
                 }
                 break;
             }
             ctr--;
         } while (ctr > 0 && ret > 0 && status == UCS_INPROGRESS);
-        opal_mutex_unlock(&winfo->mutex);
         opal_progress();
     } while (status == UCS_INPROGRESS);
 
@@ -447,7 +444,6 @@ static inline int opal_common_ucx_wpmem_putget(opal_common_ucx_wpmem_t *mem,
     }
 
     /* Perform the operation */
-    opal_mutex_lock(&winfo->mutex);
     switch (op) {
     case OPAL_COMMON_UCX_PUT:
         status = ucp_put_nbi(ep, buffer, len, rem_addr, rkey);
@@ -471,7 +467,6 @@ static inline int opal_common_ucx_wpmem_putget(opal_common_ucx_wpmem_t *mem,
     }
 
 out:
-    opal_mutex_unlock(&winfo->mutex);
 
     return rc;
 }
