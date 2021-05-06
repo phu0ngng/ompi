@@ -48,6 +48,7 @@ typedef struct {
     ucp_address_t *recv_waddr;
     size_t recv_waddr_len;
     bool mt_enable;
+    bool is_dflt_ctx;
 
     /* Bookkeeping information */
     opal_list_t idle_workers;
@@ -225,6 +226,8 @@ OPAL_DECLSPEC void opal_common_ucx_req_completion(void *request, ucs_status_t st
 OPAL_DECLSPEC int opal_common_ucx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target);
 
 OPAL_DECLSPEC int opal_common_ucx_ctx_tlocal_fetch_spath(opal_common_ucx_wpmem_t *mem, int target);
+
+OPAL_DECLSPEC int opal_common_ucx_set_default_context_worker(ucp_context_h ctx, ucp_worker_h worker);
 
 static inline int
 opal_common_ucx_tlocal_fetch(opal_common_ucx_wpmem_t *mem, int target,

@@ -42,6 +42,15 @@ static void _tlocal_mem_rec_cleanup(_mem_record_t *mem_rec);
 static void _ctx_rec_destructor(void *arg);
 static void _mem_rec_destructor(void *arg);
 
+static ucp_context_h dflt_ctx = NULL;
+static ucp_worker_h dflt_worker = NULL;
+
+int opal_common_ucx_set_default_context_worker(ucp_context_h ctx, ucp_worker_h worker)
+{
+    dflt_ctx = ctx;
+    dflt_worker = worker;
+}
+
 /* -----------------------------------------------------------------------------
  * Worker information (winfo) management functionality
  *----------------------------------------------------------------------------*/
@@ -107,7 +116,9 @@ static void _winfo_destructor(opal_common_ucx_winfo_t *winfo)
     winfo->comm_size = 0;
 
     OBJ_DESTRUCT(&winfo->mutex);
-    ucp_worker_destroy(winfo->worker);
+    if (winfo->worker != dflt_worker) {
+        ucp_worker_destroy(winfo->worker);
+    }
 }
 
 /* -----------------------------------------------------------------------------
@@ -154,28 +165,33 @@ OPAL_DECLSPEC int opal_common_ucx_wpool_init(opal_common_ucx_wpool_t *wpool, int
         return OPAL_ERROR;
     }
 
-    /* initialize UCP context */
-    memset(&context_params, 0, sizeof(context_params));
-    context_params.field_mask = UCP_PARAM_FIELD_FEATURES | UCP_PARAM_FIELD_MT_WORKERS_SHARED
-                                | UCP_PARAM_FIELD_ESTIMATED_NUM_EPS | UCP_PARAM_FIELD_REQUEST_INIT
-                                | UCP_PARAM_FIELD_REQUEST_SIZE;
-    context_params.features = UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_AMO64;
-    context_params.mt_workers_shared = (enable_mt ? 1 : 0);
-    context_params.estimated_num_eps = proc_world_size;
-    context_params.request_init = opal_common_ucx_req_init;
-    context_params.request_size = sizeof(opal_common_ucx_request_t);
+    if (NULL == dflt_ctx) {
+        /* initialize UCP context */
+        memset(&context_params, 0, sizeof(context_params));
+        context_params.field_mask = UCP_PARAM_FIELD_FEATURES | UCP_PARAM_FIELD_MT_WORKERS_SHARED
+                                    | UCP_PARAM_FIELD_ESTIMATED_NUM_EPS | UCP_PARAM_FIELD_REQUEST_INIT
+                                    | UCP_PARAM_FIELD_REQUEST_SIZE;
+        context_params.features = UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_AMO64;
+        context_params.mt_workers_shared = (enable_mt ? 1 : 0);
+        context_params.estimated_num_eps = proc_world_size;
+        context_params.request_init = opal_common_ucx_req_init;
+        context_params.request_size = sizeof(opal_common_ucx_request_t);
 
 #if HAVE_DECL_UCP_PARAM_FIELD_ESTIMATED_NUM_PPN
-    context_params.estimated_num_ppn = opal_process_info.num_local_peers + 1;
-    context_params.field_mask |= UCP_PARAM_FIELD_ESTIMATED_NUM_PPN;
+        context_params.estimated_num_ppn = opal_process_info.num_local_peers + 1;
+        context_params.field_mask |= UCP_PARAM_FIELD_ESTIMATED_NUM_PPN;
 #endif
 
-    status = ucp_init(&context_params, config, &wpool->ucp_ctx);
-    ucp_config_release(config);
-    if (UCS_OK != status) {
-        MCA_COMMON_UCX_VERBOSE(1, "ucp_init failed: %d", status);
-        rc = OPAL_ERROR;
-        goto err_ucp_init;
+        status = ucp_init(&context_params, config, &wpool->ucp_ctx);
+        ucp_config_release(config);
+        if (UCS_OK != status) {
+            MCA_COMMON_UCX_VERBOSE(1, "ucp_init failed: %d", status);
+            rc = OPAL_ERROR;
+            goto err_ucp_init;
+        }
+    } else {
+        wpool->ucp_ctx = dflt_ctx;
+        wpool->is_dflt_ctx = true;
     }
 
     /* create recv worker and add to idle pool */
@@ -190,6 +206,11 @@ OPAL_DECLSPEC int opal_common_ucx_wpool_init(opal_common_ucx_wpool_t *wpool, int
     }
     wpool->dflt_winfo = winfo;
     wpool->mt_enable = enable_mt;
+
+    if (NULL != dflt_worker) {
+        ucp_worker_destroy(wpool->dflt_winfo->worker);
+        wpool->dflt_winfo->worker = dflt_worker;
+    }
     OBJ_RETAIN(wpool->dflt_winfo);
 
     status = ucp_worker_get_address(wpool->dflt_winfo->worker, &wpool->recv_waddr,
@@ -258,7 +279,9 @@ void opal_common_ucx_wpool_finalize(opal_common_ucx_wpool_t *wpool)
     wpool->dflt_winfo = NULL;
 
     OBJ_DESTRUCT(&wpool->mutex);
-    ucp_cleanup(wpool->ucp_ctx);
+    if (!wpool->is_dflt_ctx) {
+        ucp_cleanup(wpool->ucp_ctx);
+    }
     return;
 }
 
@@ -289,7 +312,9 @@ OPAL_DECLSPEC int opal_common_ucx_wpool_progress(opal_common_ucx_wpool_t *wpool)
     }
 
     /* make sure to progress the default winfo */
-    completed += ucp_worker_progress(wpool->dflt_winfo->worker);
+    if (!wpool->is_dflt_ctx) {
+        completed += ucp_worker_progress(wpool->dflt_winfo->worker);
+    }
     return completed;
 }
 

@@ -23,6 +23,7 @@
 #include "ompi/runtime/ompi_spc.h"
 #include "ompi/mca/pml/base/pml_base_bsend.h"
 #include "opal/mca/common/ucx/common_ucx.h"
+#include "opal/mca/common/ucx/common_ucx_wpool.h"
 #if OPAL_CUDA_SUPPORT
 #include "opal/mca/common/cuda/common_cuda.h"
 #endif /* OPAL_CUDA_SUPPORT */
@@ -221,7 +222,7 @@ int mca_pml_ucx_open(void)
                                UCP_PARAM_FIELD_TAG_SENDER_MASK |
                                UCP_PARAM_FIELD_MT_WORKERS_SHARED |
                                UCP_PARAM_FIELD_ESTIMATED_NUM_EPS;
-    params.features          = UCP_FEATURE_TAG;
+    params.features          = UCP_FEATURE_TAG | UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_AMO64;
     params.request_size      = sizeof(ompi_request_t);
     params.request_init      = mca_pml_ucx_request_init;
     params.request_cleanup   = mca_pml_ucx_request_cleanup;
@@ -350,6 +351,9 @@ int mca_pml_ucx_init(int enable_mpi_threads)
     mca_pml_ucx_completed_request_init(&ompi_pml_ucx.completed_send_req);
 
     opal_progress_register(mca_pml_ucx_progress);
+
+    opal_common_ucx_set_default_context_worker(ompi_pml_ucx.ucp_context,
+                                               ompi_pml_ucx.ucp_worker);
 
     PML_UCX_VERBOSE(2, "created ucp context %p, worker %p",
                     (void *)ompi_pml_ucx.ucp_context,
