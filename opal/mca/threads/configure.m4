@@ -3,7 +3,7 @@ dnl
 dnl Copyright (c) 2004-2005 The Trustees of Indiana University and Indiana
 dnl                         University Research and Technology
 dnl                         Corporation.  All rights reserved.
-dnl Copyright (c) 2004-2005 The University of Tennessee and The University
+dnl Copyright (c) 2004-2021 The University of Tennessee and The University
 dnl                         of Tennessee Research Foundation.  All rights
 dnl                         reserved.
 dnl Copyright (c) 2004-2005 High Performance Computing Center Stuttgart,
@@ -43,7 +43,7 @@ AC_DEFUN([MCA_opal_threads_CONFIG],[
 
 AC_ARG_WITH([threads],
             [AS_HELP_STRING([--with-threads=TYPE],
-                        [Specify thread TYPE to use. default:pthreads. Other options are qthreads and argobots.])])
+                        [Specify thread TYPE to use. default:pthreads. Other options are qthreads, argobots, and byos (bring-your-own-sync).])])
 
 #
 # Configure components

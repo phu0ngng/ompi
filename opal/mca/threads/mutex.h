@@ -3,7 +3,7 @@
  * Copyright (c) 2004-2005 The Trustees of Indiana University and Indiana
  *                         University Research and Technology
  *                         Corporation.  All rights reserved.
- * Copyright (c) 2004-2016 The University of Tennessee and The University
+ * Copyright (c) 2004-2021 The University of Tennessee and The University
  *                         of Tennessee Research Foundation.  All rights
  *                         reserved.
  * Copyright (c) 2004-2005 High Performance Computing Center Stuttgart,
@@ -51,6 +51,18 @@ typedef struct opal_mutex_t opal_recursive_mutex_t;
 
 #include MCA_threads_mutex_base_include_HEADER
 
+
+#if !defined(OPAL_THREAD_INTERNAL_MUTEX_REQUIRES_RUNTIME_INIT)
+#define OPAL_THREAD_INTERNAL_MUTEX_REQUIRES_RUNTIME_INIT 0
+#define OPAL_THREAD_RUNTIME_INIT_FLAG
+#define OPAL_THREAD_RUNTIME_INIT_FLAG_INITIALIZER(_recursive)
+#else
+#define OPAL_THREAD_RUNTIME_INIT_FLAG bool m_initialized; bool m_is_recursive
+#define OPAL_THREAD_RUNTIME_INIT_FLAG_INITIALIZER(_recursive) \
+    .m_initialized = false,                                   \
+    .m_is_recursive = _recursive
+#endif // OPAL_THREAD_INTERNAL_MUTEX_REQUIRES_RUNTIME_INIT
+
 struct opal_mutex_t {
     opal_object_t super;
     opal_thread_internal_mutex_t m_lock;
@@ -60,6 +72,7 @@ struct opal_mutex_t {
     int m_lock_line;
 #endif
     opal_atomic_lock_t m_lock_atomic;
+    OPAL_THREAD_RUNTIME_INIT_FLAG;
 };
 
 OPAL_DECLSPEC OBJ_CLASS_DECLARATION(opal_mutex_t);
@@ -71,6 +84,7 @@ OPAL_DECLSPEC OBJ_CLASS_DECLARATION(opal_recursive_mutex_t);
             .super = OPAL_OBJ_STATIC_INIT(opal_mutex_t),                                   \
             .m_lock = OPAL_THREAD_INTERNAL_MUTEX_INITIALIZER, .m_lock_debug = 0,           \
             .m_lock_file = NULL, .m_lock_line = 0, .m_lock_atomic = OPAL_ATOMIC_LOCK_INIT, \
+            OPAL_THREAD_RUNTIME_INIT_FLAG_INITIALIZER(false)                               \
         }
 #else
 #    define OPAL_MUTEX_STATIC_INIT                            \
@@ -78,6 +92,7 @@ OPAL_DECLSPEC OBJ_CLASS_DECLARATION(opal_recursive_mutex_t);
             .super = OPAL_OBJ_STATIC_INIT(opal_mutex_t),      \
             .m_lock = OPAL_THREAD_INTERNAL_MUTEX_INITIALIZER, \
             .m_lock_atomic = OPAL_ATOMIC_LOCK_INIT,           \
+            OPAL_THREAD_RUNTIME_INIT_FLAG_INITIALIZER(false)  \
         }
 #endif
 
@@ -88,6 +103,7 @@ OPAL_DECLSPEC OBJ_CLASS_DECLARATION(opal_recursive_mutex_t);
                 .super = OPAL_OBJ_STATIC_INIT(opal_mutex_t),                                   \
                 .m_lock = OPAL_THREAD_INTERNAL_RECURSIVE_MUTEX_INITIALIZER, .m_lock_debug = 0, \
                 .m_lock_file = NULL, .m_lock_line = 0, .m_lock_atomic = OPAL_ATOMIC_LOCK_INIT, \
+                OPAL_THREAD_RUNTIME_INIT_FLAG_INITIALIZER(true)                                \
             }
 #    else
 #        define OPAL_RECURSIVE_MUTEX_STATIC_INIT                            \
@@ -95,9 +111,30 @@ OPAL_DECLSPEC OBJ_CLASS_DECLARATION(opal_recursive_mutex_t);
                 .super = OPAL_OBJ_STATIC_INIT(opal_mutex_t),                \
                 .m_lock = OPAL_THREAD_INTERNAL_RECURSIVE_MUTEX_INITIALIZER, \
                 .m_lock_atomic = OPAL_ATOMIC_LOCK_INIT,                     \
+                OPAL_THREAD_RUNTIME_INIT_FLAG_INITIALIZER(true)             \
             }
 #    endif
 #endif /* OPAL_THREAD_INTERNAL_RECURSIVE_MUTEX_INITIALIZER */
+
+static inline void opal_mutex_atomic_lock(opal_mutex_t *mutex);
+static inline void opal_mutex_atomic_unlock(opal_mutex_t *mutex);
+
+static inline int opal_mutex_runtime_init(opal_mutex_t *mutex)
+{
+#if OPAL_THREAD_INTERNAL_MUTEX_REQUIRES_RUNTIME_INIT
+    if (OPAL_UNLIKELY(!mutex->m_initialized)) {
+        opal_mutex_atomic_lock(mutex);
+        /* Make sure the second is not hoisted out of the critical regioin */
+        opal_atomic_rmb();
+        if (!mutex->m_initialized) {
+            opal_thread_internal_mutex_init(&mutex->m_lock, mutex->m_is_recursive);
+            mutex->m_initialized = true;
+        }
+        opal_mutex_atomic_unlock(mutex);
+        printf("Runtime-initialized opal_mutex %p", mutex);
+    }
+#endif // OPAL_THREAD_INTERNAL_MUTEX_REQUIRES_RUNTIME_INIT
+}
 
 /**
  * Try to acquire a mutex.
@@ -107,6 +144,7 @@ OPAL_DECLSPEC OBJ_CLASS_DECLARATION(opal_recursive_mutex_t);
  */
 static inline int opal_mutex_trylock(opal_mutex_t *mutex)
 {
+    opal_mutex_runtime_init(mutex);
     return opal_thread_internal_mutex_trylock(&mutex->m_lock);
 }
 
@@ -117,6 +155,7 @@ static inline int opal_mutex_trylock(opal_mutex_t *mutex)
  */
 static inline void opal_mutex_lock(opal_mutex_t *mutex)
 {
+    opal_mutex_runtime_init(mutex);
     opal_thread_internal_mutex_lock(&mutex->m_lock);
 }
 

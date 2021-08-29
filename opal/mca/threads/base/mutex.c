@@ -3,7 +3,7 @@
  * Copyright (c) 2004-2005 The Trustees of Indiana University and Indiana
  *                         University Research and Technology
  *                         Corporation.  All rights reserved.
- * Copyright (c) 2004-2005 The University of Tennessee and The University
+ * Copyright (c) 2004-2021 The University of Tennessee and The University
  *                         of Tennessee Research Foundation.  All rights
  *                         reserved.
  * Copyright (c) 2004-2005 High Performance Computing Center Stuttgart,
@@ -46,6 +46,8 @@ static void mca_threads_mutex_constructor(opal_mutex_t *p_mutex)
 #else
     opal_thread_internal_mutex_init(&p_mutex->m_lock, false);
 #endif
+    p_mutex->m_initialized = true;
+    p_mutex->m_is_recursive = false;
     opal_atomic_lock_init(&p_mutex->m_lock_atomic, 0);
 }
 
@@ -65,6 +67,8 @@ static void mca_threads_recursive_mutex_constructor(opal_recursive_mutex_t *p_mu
 #else
     opal_thread_internal_mutex_init(&p_mutex->m_lock, true);
 #endif
+    p_mutex->m_initialized = true;
+    p_mutex->m_is_recursive = true;
     opal_atomic_lock_init(&p_mutex->m_lock_atomic, 0);
 }
 
