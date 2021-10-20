@@ -46,6 +46,7 @@ typedef enum {
 struct mca_pml_ob1_send_request_t {
     mca_pml_base_send_request_t req_send;
     mca_bml_base_endpoint_t* req_endpoint;
+    mca_pml_base_request_t* req_parent;
     opal_ptr_t req_recv;
     opal_atomic_int32_t  req_state;
     opal_atomic_int32_t  req_lock;
@@ -155,6 +156,7 @@ get_request_from_send_pending(mca_pml_ob1_send_pending_t *type)
                                        sendmode,                        \
                                        persistent,                      \
                                        0); /* convertor_flags */        \
+        (sendreq)->req_parent = NULL;                                   \
         (sendreq)->req_recv.pval = NULL;                                \
     }
 
@@ -198,18 +200,27 @@ static inline void mca_pml_ob1_free_rdma_resources (mca_pml_ob1_send_request_t* 
  * Mark a send request as completed at the MPI level.
  */
 
-#define MCA_PML_OB1_SEND_REQUEST_MPI_COMPLETE(sendreq, with_signal)                  \
-do {                                                                                 \
-   (sendreq)->req_send.req_base.req_ompi.req_status.MPI_SOURCE =                     \
-       (sendreq)->req_send.req_base.req_comm->c_my_rank;                             \
-   (sendreq)->req_send.req_base.req_ompi.req_status.MPI_TAG =                        \
-        (sendreq)->req_send.req_base.req_tag;                                        \
-   (sendreq)->req_send.req_base.req_ompi.req_status._ucount =                        \
-        (sendreq)->req_send.req_bytes_packed;                                        \
-   PERUSE_TRACE_COMM_EVENT( PERUSE_COMM_REQ_COMPLETE,                                \
-                            &(sendreq->req_send.req_base), PERUSE_SEND);             \
-                                                                                     \
-   ompi_request_complete( &((sendreq)->req_send.req_base.req_ompi), (with_signal) ); \
+#define MCA_PML_OB1_SEND_REQUEST_MPI_COMPLETE(sendreq, with_signal)                       \
+do {                                                                                      \
+    (sendreq)->req_send.req_base.req_ompi.req_status.MPI_SOURCE =                         \
+        (sendreq)->req_send.req_base.req_comm->c_my_rank;                                 \
+    (sendreq)->req_send.req_base.req_ompi.req_status.MPI_TAG =                            \
+         (sendreq)->req_send.req_base.req_tag;                                            \
+    (sendreq)->req_send.req_base.req_ompi.req_status._ucount =                            \
+         (sendreq)->req_send.req_bytes_packed;                                            \
+    if(NULL != (sendreq)->req_parent) {                                                   \
+        PERUSE_TRACE_COMM_EVENT( PERUSE_COMM_REQ_COMPLETE,                                \
+                                 &(sendreq->req_parent->req_base), PERUSE_SEND);          \
+                                                                                          \
+        ompi_request_complete( &(sendreq)->req_parent->req_ompi, (with_signal) );         \
+        ompi_request_complete( &((sendreq)->req_send.req_base.req_ompi), false );         \
+        (sendreq)->req_parent = NULL;  /* dissociate from parent */                       \
+    } else {                                                                              \
+        PERUSE_TRACE_COMM_EVENT( PERUSE_COMM_REQ_COMPLETE,                                \
+                                 &(sendreq->req_send.req_base), PERUSE_SEND);             \
+                                                                                          \
+        ompi_request_complete( &((sendreq)->req_send.req_base.req_ompi), (with_signal) ); \
+    }                                                                                     \
 } while(0)
 
 static inline void mca_pml_ob1_send_request_fini (mca_pml_ob1_send_request_t *sendreq)

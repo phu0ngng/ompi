@@ -129,7 +129,7 @@ struct ompi_request_t {
     ompi_status_public_t req_status;            /**< Completion status */
     volatile void *req_complete;                /**< Flag indicating wether request has completed */
     volatile ompi_request_state_t req_state;    /**< enum indicate state of the request */
-    bool req_persistent;                        /**< flag indicating if the this is a persistent request */
+    bool req_persistent;                        /**< flag indicating if this is a persistent request */
     int req_f_to_c_index;                       /**< Index in Fortran <-> C translation array */
     ompi_request_start_fn_t req_start;          /**< Called by MPI_START and MPI_STARTALL */
     ompi_request_free_fn_t req_free;            /**< Called by free */
