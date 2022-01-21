@@ -41,22 +41,7 @@ int ompi_request_default_wait(
 {
     ompi_request_t *req = *req_ptr;
 
-#if OMPI_HAVE_MPI_EXT_CONTINUE
-    if (OMPI_REQUEST_CONT == req->req_type) {
-        /* let the continuations be processed as part of the global progress loop
-         * while we're waiting for their completion */
-        ompi_continue_register_request_progress(req);
-    }
-#endif /* OMPI_HAVE_MPI_EXT_CONTINUE */
-
-
     ompi_request_wait_completion(req);
-
-#if OMPI_HAVE_MPI_EXT_CONTINUE
-    if (OMPI_REQUEST_CONT == req->req_type) {
-        ompi_continue_deregister_request_progress(req);
-    }
-#endif /* OMPI_HAVE_MPI_EXT_CONTINUE */
 
 #if OPAL_ENABLE_FT_MPI
     /* Special case for MPI_ANY_SOURCE */
@@ -144,13 +129,6 @@ recheck:
 
         request = requests[i];
 
-#if OMPI_HAVE_MPI_EXT_CONTINUE
-        if (OMPI_REQUEST_CONT == request->req_type) {
-            have_cont_req = true;
-            ompi_continue_register_request_progress(request);
-        }
-#endif /* OMPI_HAVE_MPI_EXT_CONTINUE */
-
         /* Check for null or completed persistent request. For
          * MPI_REQUEST_NULL, the req_state is always OMPI_REQUEST_INACTIVE.
          */
@@ -166,6 +144,13 @@ recheck:
                 goto after_sync_wait;
             }
         }
+
+#if OMPI_HAVE_MPI_EXT_CONTINUE
+        if (OMPI_REQUEST_CONT == request->req_type) {
+            have_cont_req = true;
+            ompi_continue_register_request_progress(request, &sync);
+        }
+#endif /* OMPI_HAVE_MPI_EXT_CONTINUE */
 
 #if OPAL_ENABLE_FT_MPI
         if(OPAL_UNLIKELY( ompi_request_is_failed(request) )) {
@@ -319,7 +304,7 @@ recheck:
 
 #if OMPI_HAVE_MPI_EXT_CONTINUE
         if (OMPI_REQUEST_CONT == request->req_type) {
-            ompi_continue_register_request_progress(request);
+            ompi_continue_register_request_progress(request, &sync);
         }
 #endif /* OMPI_HAVE_MPI_EXT_CONTINUE */
 
@@ -590,7 +575,7 @@ int ompi_request_default_wait_some(size_t count,
 
 #if OMPI_HAVE_MPI_EXT_CONTINUE
         if (OMPI_REQUEST_CONT == request->req_type) {
-            ompi_continue_register_request_progress(request);
+            ompi_continue_register_request_progress(request, &sync);
         }
 #endif /* OMPI_HAVE_MPI_EXT_CONTINUE */
 
