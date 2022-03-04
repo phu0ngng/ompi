@@ -28,6 +28,9 @@
 #endif
 
 #include "ompi/mca/op/op.h"
+#include "opal/datatype/opal_datatype.h"
+#include "opal/datatype/opal_datatype_internal.h"
+#include "opal/constants.h"
 
 
 /*
@@ -102,6 +105,189 @@
             }                                                           \
         }                                                               \
     }
+
+/* Convenience macro that dispatches the OPAL type ID id to a call
+ * to FN with the name of the type, or executes DEF if id is not an OPAL type ID.
+ * This macro does not support complex types (how do you compare those for MIN/MAXLOC?)
+ */
+#define OPAL_DATATYPE_NOCOMPLEX_SWITCH(FN, DEF, id, FLAGS)  \
+  do {                                                      \
+    switch (id) {                                           \
+      case OPAL_DATATYPE_INT1:                              \
+      { FN(INT1, FLAGS); break; }                           \
+      case OPAL_DATATYPE_INT2:                              \
+      { FN(INT2, FLAGS); break; }                           \
+      case OPAL_DATATYPE_INT4:                              \
+      { FN(INT4, FLAGS); break; }                           \
+      case OPAL_DATATYPE_INT8:                              \
+      { FN(INT8, FLAGS); break; }                           \
+      case OPAL_DATATYPE_INT16:                             \
+      { FN(INT16, FLAGS); break; }                          \
+      case OPAL_DATATYPE_UINT1:                             \
+      { FN(UINT1, FLAGS); break; }                          \
+      case OPAL_DATATYPE_UINT2:                             \
+      { FN(UINT2, FLAGS); break; }                          \
+      case OPAL_DATATYPE_UINT4:                             \
+      { FN(UINT4, FLAGS); break; }                          \
+      case OPAL_DATATYPE_UINT8:                             \
+      { FN(UINT8, FLAGS); break; }                          \
+      case OPAL_DATATYPE_UINT16:                            \
+      { FN(UINT16, FLAGS); break; }                         \
+      case OPAL_DATATYPE_FLOAT2:                            \
+      { FN(FLOAT2, FLAGS); break; }                         \
+      case OPAL_DATATYPE_FLOAT4:                            \
+      { FN(FLOAT4, FLAGS); break; }                         \
+      case OPAL_DATATYPE_FLOAT8:                            \
+      { FN(FLOAT8, FLAGS); break; }                         \
+      case OPAL_DATATYPE_FLOAT12:                           \
+      { FN(FLOAT12, FLAGS); break; }                        \
+      case OPAL_DATATYPE_FLOAT16:                           \
+      { FN(FLOAT16, FLAGS); break; }                        \
+      case OPAL_DATATYPE_BOOL:                              \
+      { FN(BOOL, FLAGS); break; }                           \
+      case OPAL_DATATYPE_WCHAR:                             \
+      { FN(WCHAR, FLAGS); break; }                          \
+      default:                                              \
+        DEF();                                              \
+    }                                                       \
+  } while (0)
+
+/* Macros used to defer the evaluation of macros in order to facilitate
+ * recursive macro invocation.
+ *
+ * See https://github.com/pfultz2/Cloak/wiki/C-Preprocessor-tricks,-tips,-and-idioms
+ */
+#define EMPTY(...)
+#define DEFER(...) __VA_ARGS__ EMPTY()
+#define OBSTRUCT(...) __VA_ARGS__ DEFER(EMPTY)()
+#define EVAL(...)  EVAL1(EVAL1(EVAL1(__VA_ARGS__)))
+#define EVAL1(...) EVAL2(EVAL2(EVAL2(__VA_ARGS__)))
+#define EVAL2(...) __VA_ARGS__
+
+/* Set the error return value; used if type is unavailable */
+#define LOC_FUNC_2LOC_EMPTY() do { } while (0)
+
+/* Dispatch based on whether the key type is available */
+#define LOC_FUNC_2LOC_IDXTYPE(NAME, OP)                                \
+    do {                                                               \
+        OBSTRUCT(OPAL_DATATYPE_HANDLE_##NAME)(LOC_FUNC_2LOC_IDXAVAIL,  \
+                                    LOC_FUNC_2LOC_IDXNOTAVAIL, OP);    \
+    } while (0)
+
+/* generate M**LOC code for when the key type is available */
+#define LOC_FUNC_2LOC_IDXAVAIL(IDXTYPE, unused_ALIGN, NAME, OP)   \
+  do {                                                            \
+      LOC_FUNC_GENERIC(typeof(valtype_instance), IDXTYPE, OP);    \
+  } while (0)
+
+/* fallback for when the key type is not available */
+#define LOC_FUNC_2LOC_IDXNOTAVAIL(IDXTYPE, NAME) LOC_FUNC_2LOC_EMPTY()
+
+/* generate the second level switch{...} for the key types if the value type is available */
+#define LOC_FUNC_2LOC_VALTYPE(NAME, OP)                               \
+    do {                                                            \
+        OBSTRUCT(OPAL_DATATYPE_HANDLE_##NAME)(LOC_FUNC_2LOC_VALAVAIL, \
+                                    LOC_FUNC_2LOC_VALNOTAVAIL, OP);   \
+    } while (0)
+
+/* generate the second level switch
+ * NOTE: valtype_instance is used to transport type information into the inner macro.
+ */
+#define LOC_FUNC_2LOC_VALAVAIL(VALTYPE, unused_ALIGN, NAME, OP)   \
+    do {                                                          \
+        VALTYPE valtype_instance;                                 \
+        OBSTRUCT(OPAL_DATATYPE_NOCOMPLEX_SWITCH)(                 \
+                    LOC_FUNC_2LOC_IDXTYPE, LOC_FUNC_2LOC_EMPTY,   \
+                    key_type_id, OP                               \
+                );                                                \
+    } while (0)
+
+/* set an error if the value type is not available */
+#define LOC_FUNC_2LOC_VALNOTAVAIL(NAME, unused) LOC_FUNC_2LOC_EMPTY()
+
+/**
+ * Inline code to generate LOC from value type, key type, and op.
+ * Expects cound as well as in and out pointers to be available.
+ */
+#define LOC_FUNC_2LOC(val_type, idx_type, op)                                       \
+    do {                                                                            \
+        LOC_STRUCT(generated, val_type, idx_type);                                  \
+        ompi_op_predefined_generated_t *a = (ompi_op_predefined_generated_t*) in;   \
+        ompi_op_predefined_generated_t *b = (ompi_op_predefined_generated_t*) out;  \
+        for (int i = 0; i < *count; ++i, ++a, ++b) {                                \
+            if (a->v op b->v) {                                                     \
+                b->v = a->v;                                                        \
+                b->k = a->k;                                                        \
+            } else if (a->v == b->v) {                                              \
+                b->k = (b->k < a->k ? b->k : a->k);                                 \
+            }                                                                       \
+        }                                                                           \
+    } while (0)
+
+/* select the 2buff version */
+#define LOC_FUNC_GENERIC(val_type, idx_type, op) LOC_FUNC_2LOC(val_type, idx_type, op)
+
+static void ompi_op_base_2buff_2loc_minloc(const void *in, void *out, int *count,
+                                          struct ompi_datatype_t **dtype,
+                                          struct ompi_op_base_module_1_0_0_t *module)
+{
+  opal_datatype_t *opal_dtype = (opal_datatype_t*)*dtype;
+  uint16_t val_type_id = opal_dtype->desc.desc[0].elem.common.type;
+  uint16_t key_type_id = opal_dtype->desc.desc[1].elem.common.type;
+
+  /**
+   * Generate minloc code for all combinations of value and index types.
+   * The code itself is expanded from LOC_FUNC_2LOC with the correct types.
+   * The macro below expands to something like:
+   *
+   * ```
+   * switch (val_type_id) {
+   *     case OPAL_DATATYPE_INT1: {
+   *          switch (key_type_id) {
+   *              case OPAL_DATATYPE_INT1:
+   *                   minloc for int8_t value, int8_t index pair
+   *              case OPAL_DATATYPE_INT2:
+   *                   minloc for int8_t value, int16_t index pair
+   *              ...
+   *          }
+   *     }
+   *     case OPAL_DATATYPE_INT2: {
+   *          switch (key_type_id) {
+   *              case OPAL_DATATYPE_INT1:
+   *                   minloc for int16_t value, int8_t index pair
+   *              case OPAL_DATATYPE_INT2:
+   *                   minloc for int16_t value, int16_t index pair
+   *              ...
+   *          }
+   *     }
+   * }
+   * ```
+   * The generated function is large but any type-pair should only require 2 jumps
+   * (one selecting the value type, the second selecting the index type).
+   * There is some macro magic needed to make nested evaluation of the same macro
+   * possible (most importantly the OPAL_DATATYPE_NOCOMPLEX_SWITCH and OPAL_DATATYPE_HANDLE_*).
+   * See EVAL and OBSTRUCT macros above.
+   */
+  EVAL(OBSTRUCT(OPAL_DATATYPE_NOCOMPLEX_SWITCH)(LOC_FUNC_2LOC_VALTYPE, LOC_FUNC_2LOC_EMPTY, val_type_id, <));
+}
+
+
+static void ompi_op_base_2buff_2loc_maxloc(const void *in, void *out, int *count,
+                                           struct ompi_datatype_t **dtype,
+                                           struct ompi_op_base_module_1_0_0_t *module)
+{
+  opal_datatype_t *opal_dtype = (opal_datatype_t*)*dtype;
+  uint16_t val_type_id = opal_dtype->desc.desc[0].elem.common.type;
+  uint16_t key_type_id = opal_dtype->desc.desc[1].elem.common.type;
+
+  /**
+   * Generate code for maxloc. See comment in ompi_op_base_2buff_2t_minloc for details.
+   */
+  EVAL(OBSTRUCT(OPAL_DATATYPE_NOCOMPLEX_SWITCH)(LOC_FUNC_2LOC_VALTYPE, LOC_FUNC_2LOC_EMPTY, val_type_id, >));
+}
+
+/* done with the 2buff loc function */
+#undef LOC_FUNC_GENERIC
 
 /*
  * Define a function to calculate sum of complex numbers using a real
@@ -761,6 +947,65 @@ LOC_FUNC(minloc, long_double_int, <)
           }                                                             \
       }                                                                 \
   }
+
+#define LOC_FUNC_2LOC_3BUF(val_type, idx_type, op)                      \
+  {                                                                     \
+      int i;                                                            \
+      LOC_STRUCT(generated, val_type, idx_type);                                  \
+      ompi_op_predefined_generated_t *a1 = (ompi_op_predefined_generated_t*) in1; \
+      ompi_op_predefined_generated_t *a2 = (ompi_op_predefined_generated_t*) in2; \
+      ompi_op_predefined_generated_t *b = (ompi_op_predefined_generated_t*) out; \
+      for (i = 0; i < *count; ++i, ++a1, ++a2, ++b ) {                  \
+          if (a1->v op a2->v) {                                         \
+              b->v = a1->v;                                             \
+              b->k = a1->k;                                             \
+          } else if (a1->v == a2->v) {                                  \
+              b->v = a1->v;                                             \
+              b->k = (a2->k < a1->k ? a2->k : a1->k);                   \
+          } else {                                                      \
+              b->v = a2->v;                                             \
+              b->k = a2->k;                                             \
+          }                                                             \
+      }                                                                 \
+  }
+
+/* select the 3buff version */
+#define LOC_FUNC_GENERIC(val_type, idx_type, op) LOC_FUNC_2LOC_3BUF(val_type, idx_type, op)
+
+static void ompi_op_base_3buff_2loc_minloc(const void * restrict in1,
+                                           const void * restrict in2, void * restrict out, int *count,
+                                           struct ompi_datatype_t **dtype,
+                                           struct ompi_op_base_module_1_0_0_t *module)
+{
+  opal_datatype_t *opal_dtype = (opal_datatype_t*)*dtype;
+  uint16_t val_type_id = opal_dtype->desc.desc[0].elem.common.type;
+  uint16_t key_type_id = opal_dtype->desc.desc[1].elem.common.type;
+
+  /**
+   * Generate code for minloc. See ompi_op_base_2buff_2loc_minloc for what happens here.
+   */
+  EVAL(OBSTRUCT(OPAL_DATATYPE_NOCOMPLEX_SWITCH)(LOC_FUNC_2LOC_VALTYPE, LOC_FUNC_2LOC_EMPTY, val_type_id, <));
+}
+
+
+static void ompi_op_base_3buff_2loc_maxloc(const void * restrict in1,
+                                           const void * restrict in2, void * restrict out, int *count,
+                                           struct ompi_datatype_t **dtype,
+                                           struct ompi_op_base_module_1_0_0_t *module)
+{
+  opal_datatype_t *opal_dtype = (opal_datatype_t*)*dtype;
+  uint16_t val_type_id = opal_dtype->desc.desc[0].elem.common.type;
+  uint16_t key_type_id = opal_dtype->desc.desc[1].elem.common.type;
+
+  /**
+   * Generate code for maxloc. See comment in ompi_op_base_2buff_2t_minloc for details.
+   */
+  EVAL(OBSTRUCT(OPAL_DATATYPE_NOCOMPLEX_SWITCH)(LOC_FUNC_2LOC_VALTYPE, LOC_FUNC_2LOC_EMPTY, val_type_id, >));
+}
+
+/* done with the 3buff loc function */
+#undef LOC_FUNC_GENERIC
+
 
 /*
  * Define a function to calculate sum of complex numbers using a real
@@ -1534,7 +1779,8 @@ LOC_FUNC_3BUF(minloc, long_double_int, <)
     [OMPI_OP_BASE_TYPE_LONG_INT] = ompi_op_base_##ftype##_##name##_long_int,                  \
     [OMPI_OP_BASE_TYPE_2INT] = ompi_op_base_##ftype##_##name##_2int,                          \
     [OMPI_OP_BASE_TYPE_SHORT_INT] = ompi_op_base_##ftype##_##name##_short_int,                \
-    [OMPI_OP_BASE_TYPE_LONG_DOUBLE_INT] = ompi_op_base_##ftype##_##name##_long_double_int
+    [OMPI_OP_BASE_TYPE_LONG_DOUBLE_INT] = ompi_op_base_##ftype##_##name##_long_double_int,    \
+    [OMPI_OP_BASE_TYPE_2LOC_GENERIC] = ompi_op_base_##ftype##_2loc_##name
 
 /*
  * MPI_OP_NULL

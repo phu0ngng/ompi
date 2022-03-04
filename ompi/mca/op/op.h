@@ -196,8 +196,11 @@ enum {
     /** unsigned long */
     OMPI_OP_BASE_TYPE_UNSIGNED_LONG,
 
-    /** 2 location C: wchar_t */
+    /** C: wchar_t */
     OMPI_OP_BASE_TYPE_WCHAR,
+
+    /** Placeholder for generic 2 location types */
+    OMPI_OP_BASE_TYPE_2LOC_GENERIC,
 
     /** Maximum type */
     OMPI_OP_BASE_TYPE_MAX
