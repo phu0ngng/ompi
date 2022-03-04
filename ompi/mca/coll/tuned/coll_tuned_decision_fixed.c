@@ -255,53 +255,47 @@ ompi_coll_tuned_allreduce_intra_singlenode_dec_fixed(const void *sbuf, void *rbu
         if (communicator_size < 4) {
             alg = 1;
         } else if (communicator_size < 8) {
-            if (total_dsize < 128) {
-                alg = 1;
-            } else if (total_dsize < 16384) {
-                alg = 3;
-            } else if (total_dsize < 262144) {
-                alg = 2;
-            } else {
-                alg = 1;
-            }
-        } else if (communicator_size < 16) {
-            if (total_dsize < 128) {
-                alg = 1;
-            } else if (total_dsize < 4096) {
-                alg = 3;
-            } else if (total_dsize < 262144) {
-                alg = 2;
-            } else {
-                alg = 1;
-            }
-        } else {
-            if (total_dsize < 4096) {
-                alg = 3;
-            } else {
-                alg = 2;
-            }
-        }
-    } else {
-        if (communicator_size < 4) {
             if (total_dsize < 16384) {
                 alg = 1;
             } else {
                 alg = 6;
             }
-        } else if (communicator_size < 8) {
+        } else if (communicator_size < 16) {
+            if (total_dsize < 4096) {
+                alg = 1;
+            } else if (total_dsize < 4194304) {
+                alg = 3;
+            } else {
+                alg = 1;
+            }
+        } else if (communicator_size < 32) {
             if (total_dsize < 2048) {
+                alg = 1;
+            } else {
+                alg = 3;
+            }
+        } else {
+            alg = 3;
+        }
+    } else {
+        if (communicator_size < 4) {
+            alg = 1;
+        } else if (communicator_size < 8) {
+            if (total_dsize < 16384) {
                 alg = 1;
             } else {
                 alg = 6;
             }
         } else if (communicator_size < 16) {
-            if (total_dsize < 2048) {
-                alg = 3;
+            if (total_dsize < 4096) {
+                alg = 1;
             } else {
                 alg = 6;
             }
         } else if (communicator_size < 64) {
-            if (total_dsize < 4096) {
+            if (total_dsize < 512) {
+                alg = 1;
+            } else if (total_dsize < 16384) {
                 alg = 3;
             } else {
                 alg = 6;
