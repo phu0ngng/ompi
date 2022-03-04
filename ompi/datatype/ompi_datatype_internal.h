@@ -115,8 +115,14 @@
 #define OMPI_DATATYPE_MPI_LONG                    0x32
 #define OMPI_DATATYPE_MPI_UNSIGNED_LONG           0x33
 
+/*
+ * Datatype representing a generic type pair for use in min/maxloc.
+ * See https://github.com/mpi-forum/mpi-standard/pull/655
+ */
+#define OMPI_DATATYPE_MPI_2LOC_GENERIC            0x34
+
 /* This should __ALWAYS__ stay last  */
-#define OMPI_DATATYPE_MPI_UNAVAILABLE             0x34
+#define OMPI_DATATYPE_MPI_UNAVAILABLE             0x35
 
 
 #define OMPI_DATATYPE_MPI_MAX_PREDEFINED          (OMPI_DATATYPE_MPI_UNAVAILABLE+1)

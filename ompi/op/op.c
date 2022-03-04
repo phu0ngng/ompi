@@ -235,6 +235,10 @@ int ompi_op_init(void)
     ompi_op_ddt_map[OMPI_DATATYPE_MPI_LONG] = OMPI_OP_BASE_TYPE_LONG;
     ompi_op_ddt_map[OMPI_DATATYPE_MPI_UNSIGNED_LONG] = OMPI_OP_BASE_TYPE_UNSIGNED_LONG;
 
+    /* Generic pair types used in min/maxloc
+     * See https://github.com/mpi-forum/mpi-standard/pull/655 */
+    ompi_op_ddt_map[OMPI_DATATYPE_MPI_2LOC_GENERIC] = OMPI_OP_BASE_TYPE_2LOC_GENERIC;
+
     /* Create the intrinsic ops */
 
     if (OMPI_SUCCESS !=
