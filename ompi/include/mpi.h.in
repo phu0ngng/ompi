@@ -1450,7 +1450,7 @@ OMPI_DECLSPEC  int MPI_Comm_disconnect(MPI_Comm *comm);
 OMPI_DECLSPEC  int MPI_Comm_dup(MPI_Comm comm, MPI_Comm *newcomm);
 OMPI_DECLSPEC  int MPI_Comm_idup(MPI_Comm comm, MPI_Comm *newcomm, MPI_Request *request);
 OMPI_DECLSPEC  int MPI_Comm_dup_with_info(MPI_Comm comm, MPI_Info info, MPI_Comm *newcomm);
-OMPI_DECLSPEC  int MPI_Comm_idup_with_info(MPI_Comm comm, MPI_Info info, MPI_Comm *newcomm, 
+OMPI_DECLSPEC  int MPI_Comm_idup_with_info(MPI_Comm comm, MPI_Info info, MPI_Comm *newcomm,
                                            MPI_Request *request);
 OMPI_DECLSPEC  MPI_Comm MPI_Comm_f2c(MPI_Fint comm);
 OMPI_DECLSPEC  int MPI_Comm_free_keyval(int *comm_keyval);
@@ -1987,6 +1987,9 @@ OMPI_DECLSPEC  int MPI_Type_create_indexed_block(int count, int blocklength,
                                                  const int array_of_displacements[],
                                                  MPI_Datatype oldtype,
                                                  MPI_Datatype *newtype);
+OMPI_DECLSPEC  int MPI_Type_create_value_index(const MPI_Datatype value_type,
+                                               const MPI_Datatype index_type,
+                                               MPI_Datatype *newtype);
 OMPI_DECLSPEC  int MPI_Type_create_struct(int count, const int array_of_block_lengths[],
                                           const MPI_Aint array_of_displacements[],
                                           const MPI_Datatype array_of_types[],
@@ -2230,7 +2233,7 @@ OMPI_DECLSPEC  int PMPI_Comm_disconnect(MPI_Comm *comm);
 OMPI_DECLSPEC  int PMPI_Comm_dup(MPI_Comm comm, MPI_Comm *newcomm);
 OMPI_DECLSPEC  int PMPI_Comm_idup(MPI_Comm comm, MPI_Comm *newcomm, MPI_Request *request);
 OMPI_DECLSPEC  int PMPI_Comm_dup_with_info(MPI_Comm comm, MPI_Info info, MPI_Comm *newcomm);
-OMPI_DECLSPEC  int PMPI_Comm_idup_with_info(MPI_Comm comm, MPI_Info info, MPI_Comm *newcomm, 
+OMPI_DECLSPEC  int PMPI_Comm_idup_with_info(MPI_Comm comm, MPI_Info info, MPI_Comm *newcomm,
                                             MPI_Request *request);
 OMPI_DECLSPEC  MPI_Comm PMPI_Comm_f2c(MPI_Fint comm);
 OMPI_DECLSPEC  int PMPI_Comm_free_keyval(int *comm_keyval);
@@ -2747,6 +2750,9 @@ OMPI_DECLSPEC  int PMPI_Type_create_indexed_block(int count, int blocklength,
                                                   const int array_of_displacements[],
                                                   MPI_Datatype oldtype,
                                                   MPI_Datatype *newtype);
+OMPI_DECLSPEC  int PMPI_Type_create_value_index(const MPI_Datatype value_type,
+                                                const MPI_Datatype index_type,
+                                                MPI_Datatype *newtype);
 OMPI_DECLSPEC  int PMPI_Type_create_struct(int count, const int array_of_block_lengths[],
                                            const MPI_Aint array_of_displacements[],
                                            const MPI_Datatype array_of_types[],

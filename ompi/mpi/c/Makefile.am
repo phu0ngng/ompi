@@ -409,6 +409,7 @@ interface_profile_sources = \
         type_create_indexed_block.c \
         type_create_hindexed_block.c \
         type_create_keyval.c \
+        type_create_pair.c \
         type_create_resized.c \
         type_create_struct.c \
         type_create_subarray.c \
