@@ -289,4 +289,8 @@ opal_atomic_compare_exchange_strong_128(opal_atomic_int128_t *addr, opal_int128_
 
 #    endif
 
+#define OPAL_ATOMIC_HAVE_RELAXED_LOAD_STORE 1
+#define OPAL_ATOMIC_RELAXED_LOAD(a) atomic_load_explicit((a), memory_order_relaxed)
+#define OPAL_ATOMIC_RELAXED_STORE(a, v) atomic_store_explicit((a), (v), memory_order_relaxed)
+
 #endif /* !defined(OPAL_ATOMIC_STDC_H) */
