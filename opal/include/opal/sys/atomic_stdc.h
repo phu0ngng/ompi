@@ -70,7 +70,7 @@ static inline void opal_atomic_wmb(void)
 
 static inline void opal_atomic_rmb(void)
 {
-#    if OPAL_ASSEMBLY_ARCH == OPAL_X86_64
+#    if OPAL_ASSEMBLY_ARCH == OPAL_X86_64 && defined(PLATFORM_COMPILER_GNU) && __GNUC__ < 8
     /* work around a bug in older gcc versions (observed in gcc 6.x)
      * where acquire seems to get treated as a no-op instead of being
      * equivalent to __asm__ __volatile__("": : :"memory") on x86_64 */
@@ -241,12 +241,12 @@ typedef atomic_flag opal_atomic_lock_t;
  */
 static inline void opal_atomic_lock_init(opal_atomic_lock_t *lock, bool value)
 {
-    atomic_flag_clear(lock);
+    atomic_flag_clear_explicit(lock, memory_order_relaxed);
 }
 
 static inline int opal_atomic_trylock(opal_atomic_lock_t *lock)
 {
-    return (int) atomic_flag_test_and_set(lock);
+    return (int) atomic_flag_test_and_set_explicit(lock, memory_order_acquire);
 }
 
 static inline void opal_atomic_lock(opal_atomic_lock_t *lock)
@@ -257,7 +257,7 @@ static inline void opal_atomic_lock(opal_atomic_lock_t *lock)
 
 static inline void opal_atomic_unlock(opal_atomic_lock_t *lock)
 {
-    atomic_flag_clear(lock);
+    atomic_flag_clear_explicit(lock, memory_order_release);
 }
 
 #    if OPAL_HAVE_C11_CSWAP_INT128
