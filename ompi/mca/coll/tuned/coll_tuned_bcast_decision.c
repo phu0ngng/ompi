@@ -45,6 +45,7 @@ static const mca_base_var_enum_value_t bcast_algorithms[] = {
     {7, "knomial"},
     {8, "scatter_allgather"},
     {9, "scatter_allgather_ring"},
+    {10,"shift_bintree"},
     {0, NULL}
 };
 
@@ -164,6 +165,8 @@ int ompi_coll_tuned_bcast_intra_do_this(void *buf, int count,
         return ompi_coll_base_bcast_intra_scatter_allgather(buf, count, dtype, root, comm, module, segsize);
     case (9):
         return ompi_coll_base_bcast_intra_scatter_allgather_ring(buf, count, dtype, root, comm, module, segsize);
+    case (10):
+        return ompi_coll_base_bcast_intra_shift_bintree(buf, count, dtype, root, comm, module, segsize);
     } /* switch */
     OPAL_OUTPUT((ompi_coll_tuned_stream,"coll:tuned:bcast_intra_do_this attempt to select algorithm %d when only 0-%d is valid?",
                  algorithm, ompi_coll_tuned_forced_max_algorithms[BCAST]));

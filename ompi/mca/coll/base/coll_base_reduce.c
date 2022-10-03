@@ -113,7 +113,7 @@ int ompi_coll_base_reduce_generic( const void* sendbuf, void* recvbuf, int origi
 
         /* If this is a non-commutative operation we must copy
            sendbuf to the accumbuf, in order to simplify the loops */
-        
+
         if (!ompi_op_is_commute(op) && MPI_IN_PLACE != sendbuf) {
             ompi_datatype_copy_content_same_ddt(datatype, original_count,
                                                 (char*)accumbuf,
@@ -470,6 +470,83 @@ int ompi_coll_base_reduce_intra_binary( const void *sendbuf, void *recvbuf,
                                            op, root, comm, module,
                                            data->cached_bintree,
                                            segcount, max_outstanding_reqs );
+}
+
+
+int ompi_coll_base_reduce_intra_shift_binary( const void *sendbuf, void *recvbuf,
+                                         int count, ompi_datatype_t* datatype,
+                                         ompi_op_t* op, int root,
+                                         ompi_communicator_t* comm,
+                                         mca_coll_base_module_t *module,
+                                         uint32_t segsize,
+                                         int max_outstanding_reqs  )
+{
+    int segcount = count;
+    int ret = OMPI_SUCCESS;
+    size_t typelng;
+    mca_coll_base_module_t *base_module = (mca_coll_base_module_t*) module;
+    mca_coll_base_comm_t *data = base_module->base_data;
+    ompi_coll_tree_t* tree;
+
+    int rank = ompi_comm_rank(comm);
+    int size = ompi_comm_size(comm);
+
+    OPAL_OUTPUT((ompi_coll_base_framework.framework_output,"coll:base:reduce_intra_binary rank %d ss %5d",
+                 ompi_comm_rank(comm), segsize));
+
+    int new_root = (root + 1)%size;
+
+    tree = ompi_coll_base_topo_build_tree(2, comm, new_root);
+
+
+    /**
+     * Determine number of segments and number of elements
+     * sent per operation
+     */
+    ompi_datatype_type_size( datatype, &typelng );
+    COLL_BASE_COMPUTED_SEGCOUNT( segsize, typelng, segcount );
+
+    if (root != new_root) {
+    if (rank == root && sendbuf == MPI_IN_PLACE) {
+        sendbuf = recvbuf;
+    }
+
+    if (rank == new_root) {
+        recvbuf = malloc(typelng*count);
+        //printf("[%d] Allocating temporary recv bufffer %p\n", rank, recvbuf);
+    }
+    }
+
+    //printf("[%d] sendbuf %p recvbuf %p count %d root %d new_root %d\n", rank, sendbuf, recvbuf, count, root, new_root);
+
+    ret = ompi_coll_base_reduce_generic( sendbuf, recvbuf, count, datatype,
+                                          op, new_root, comm, module,
+                                          tree, segcount, max_outstanding_reqs );
+
+    // new root sends to old root
+    if (root != new_root) {
+    if (root == rank) {
+        ret = MCA_PML_CALL(recv(recvbuf, count, datatype,
+                                new_root, MCA_COLL_BASE_TAG_REDUCE,
+                                comm, MPI_STATUS_IGNORE));
+        if (ret != OMPI_SUCCESS) {
+            return ret;
+        }
+    } else if (new_root == rank) {
+        ret = MCA_PML_CALL(send(recvbuf, count, datatype,
+                                root, MCA_COLL_BASE_TAG_REDUCE,
+                                MCA_PML_BASE_SEND_STANDARD,
+                                comm));
+        free(recvbuf);
+        if (ret != OMPI_SUCCESS) {
+            return ret;
+        }
+    }
+    }
+
+    free(tree);
+
+    return ret;
 }
 
 int ompi_coll_base_reduce_intra_binomial( const void *sendbuf, void *recvbuf,

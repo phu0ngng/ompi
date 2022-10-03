@@ -274,6 +274,84 @@ ompi_coll_base_bcast_intra_bintree ( void* buffer,
 }
 
 int
+ompi_coll_base_bcast_intra_shift_bintree (void* buffer,
+                                          int count,
+                                          struct ompi_datatype_t* datatype,
+                                          int root,
+                                          struct ompi_communicator_t* comm,
+                                          mca_coll_base_module_t *module,
+                                          uint32_t segsize)
+{
+    int ret = OMPI_SUCCESS;
+    int segcount = count;
+    size_t typelng;
+    ompi_coll_tree_t* tree;
+
+    int rank = ompi_comm_rank(comm);
+    int size = ompi_comm_size(comm);
+
+    /* select the next process as new root to make sure the old root
+     * ends up as leaf in the new tree */
+    int new_root = (root + 1) % size;
+
+    //COLL_BASE_UPDATE_BINTREE( comm, module, new_root );
+
+    tree = ompi_coll_base_topo_build_tree(2, comm, new_root);
+
+    /* see if we were to send to the new root and scrap that */
+    for (int i = 0; i < tree->tree_nextsize; ++i) {
+        if (tree->tree_next[i] == root) {
+            int j;
+            for (j = i; j < tree->tree_nextsize-1; ++j) {
+                tree->tree_next[j] = tree->tree_next[j+1];
+            }
+            tree->tree_next[j] = -1;
+            tree->tree_nextsize--;
+            break;
+        }
+    }
+
+    if (root == rank) {
+        assert(tree->tree_nextsize == 0);
+    }
+
+    // send to new root
+    if (root == rank) {
+        ret = MCA_PML_CALL(send(buffer, count, datatype,
+                                new_root, MCA_COLL_BASE_TAG_BCAST,
+                                MCA_PML_BASE_SEND_STANDARD, comm));
+        if (ret != OMPI_SUCCESS) {
+            return ret;
+        }
+    } else if (new_root == rank) {
+        ret = MCA_PML_CALL(recv(buffer, count, datatype,
+                                root, MCA_COLL_BASE_TAG_BCAST,
+                                comm, MPI_STATUS_IGNORE));
+        if (ret != OMPI_SUCCESS) {
+            return ret;
+        }
+    }
+
+    /**
+     * Determine number of elements sent per operation.
+     */
+    ompi_datatype_type_size( datatype, &typelng );
+    COLL_BASE_COMPUTED_SEGCOUNT( segsize, typelng, segcount );
+
+    OPAL_OUTPUT((ompi_coll_base_framework.framework_output,"coll:base:bcast_intra_binary rank %d ss %5d typelng %lu segcount %d",
+                 ompi_comm_rank(comm), segsize, (unsigned long)typelng, segcount));
+
+    if (rank != root) {
+        ret  = ompi_coll_base_bcast_intra_generic(buffer, count, datatype, new_root, comm, module,
+                                                  segcount, tree );
+    }
+
+    free(tree);
+    return ret;
+}
+
+
+int
 ompi_coll_base_bcast_intra_pipeline( void* buffer,
                                       int count,
                                       struct ompi_datatype_t* datatype,
@@ -671,8 +749,8 @@ ompi_coll_base_bcast_intra_basic_linear(void *buff, int count,
      * care what the error was -- just that there *was* an error.  The
      * PML will finish all requests, even if one or more of them fail.
      * i.e., by the end of this call, all the requests are free-able.
-     * So free them anyway -- even if there was an error. 
-     * Note we still need to get the actual error, as collective 
+     * So free them anyway -- even if there was an error.
+     * Note we still need to get the actual error, as collective
      * operations cannot return MPI_ERR_IN_STATUS.
      */
 

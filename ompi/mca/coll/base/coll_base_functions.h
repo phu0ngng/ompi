@@ -251,6 +251,7 @@ int ompi_coll_base_bcast_intra_split_bintree(BCAST_ARGS, uint32_t segsize);
 int ompi_coll_base_bcast_intra_knomial(BCAST_ARGS, uint32_t segsize, int radix);
 int ompi_coll_base_bcast_intra_scatter_allgather(BCAST_ARGS, uint32_t segsize);
 int ompi_coll_base_bcast_intra_scatter_allgather_ring(BCAST_ARGS, uint32_t segsize);
+int ompi_coll_base_bcast_intra_shift_bintree(BCAST_ARGS, uint32_t segsize);
 
 /* Exscan */
 int ompi_coll_base_exscan_intra_recursivedoubling(EXSCAN_ARGS);
@@ -273,6 +274,7 @@ int ompi_coll_base_reduce_intra_binary(REDUCE_ARGS, uint32_t segsize, int max_ou
 int ompi_coll_base_reduce_intra_binomial(REDUCE_ARGS, uint32_t segsize, int max_outstanding_reqs );
 int ompi_coll_base_reduce_intra_in_order_binary(REDUCE_ARGS, uint32_t segsize, int max_outstanding_reqs );
 int ompi_coll_base_reduce_intra_redscat_gather(REDUCE_ARGS);
+int ompi_coll_base_reduce_intra_shift_binary(REDUCE_ARGS, uint32_t segsize, int max_outstanding_reqs);
 
 /* Reduce_scatter */
 int ompi_coll_base_reduce_scatter_intra_nonoverlapping(REDUCESCATTER_ARGS);
