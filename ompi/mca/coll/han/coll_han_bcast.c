@@ -115,6 +115,12 @@ mca_coll_han_bcast_intra(void *buff,
                          "In HAN seg_count %d count %d num_seg %d\n",
                          seg_count, count, num_segments));
 
+    if (1 == num_segments) {
+        OPAL_OUTPUT_VERBOSE((20, mca_coll_han_component.han_output,
+                             "In HAN seg_count falling back to simple\n"));
+        return mca_coll_han_bcast_intra_simple(buff, count, dtype, root, comm, module);
+    }
+
     int *vranks = han_module->cached_vranks;
     int low_rank = ompi_comm_rank(low_comm);
     int low_size = ompi_comm_size(low_comm);

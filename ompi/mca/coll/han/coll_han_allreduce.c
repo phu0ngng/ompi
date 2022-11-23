@@ -117,16 +117,9 @@ mca_coll_han_allreduce_intra(const void *sbuf,
     ptrdiff_t extent, lb;
     size_t dtype_size;
     ompi_datatype_get_extent(dtype, &lb, &extent);
-    int seg_count = count, w_rank;
-    w_rank = ompi_comm_rank(comm);
+    int seg_count = count;
     ompi_datatype_type_size(dtype, &dtype_size);
 
-    ompi_communicator_t *low_comm;
-    ompi_communicator_t *up_comm;
-
-    /* use MCA parameters for now */
-    low_comm = han_module->cached_low_comms[mca_coll_han_component.han_allreduce_low_module];
-    up_comm = han_module->cached_up_comms[mca_coll_han_component.han_allreduce_up_module];
     COLL_BASE_COMPUTED_SEGCOUNT(mca_coll_han_component.han_allreduce_segsize, dtype_size,
                                 seg_count);
 
@@ -135,6 +128,21 @@ mca_coll_han_allreduce_intra(const void *sbuf,
                          "In HAN Allreduce seg_size %d seg_count %d count %d\n",
                          mca_coll_han_component.han_allreduce_segsize, seg_count, count));
     int num_segments = (count + seg_count - 1) / seg_count;
+
+    if (1 == num_segments) {
+        OPAL_OUTPUT_VERBOSE((10, mca_coll_han_component.han_output,
+                             "In HAN Allreduce falling back to simple\n"));
+        return mca_coll_han_allreduce_intra_simple(sbuf, rbuf, count, dtype, op, comm, module);
+    }
+
+    int w_rank = ompi_comm_rank(comm);
+
+    ompi_communicator_t *low_comm;
+    ompi_communicator_t *up_comm;
+
+    /* use MCA parameters for now */
+    low_comm = han_module->cached_low_comms[mca_coll_han_component.han_allreduce_low_module];
+    up_comm = han_module->cached_up_comms[mca_coll_han_component.han_allreduce_up_module];
 
     int low_rank = ompi_comm_rank(low_comm);
     int root_up_rank = 0;

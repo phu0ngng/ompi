@@ -113,12 +113,6 @@ mca_coll_han_reduce_intra(const void *sbuf,
     w_rank = ompi_comm_rank(comm);
     ompi_datatype_type_size(dtype, &dtype_size);
 
-    ompi_communicator_t *low_comm;
-    ompi_communicator_t *up_comm;
-
-    /* use MCA parameters for now */
-    low_comm = han_module->cached_low_comms[mca_coll_han_component.han_reduce_low_module];
-    up_comm = han_module->cached_up_comms[mca_coll_han_component.han_reduce_up_module];
     COLL_BASE_COMPUTED_SEGCOUNT(mca_coll_han_component.han_reduce_segsize, dtype_size,
                                 seg_count);
 
@@ -126,6 +120,19 @@ mca_coll_han_reduce_intra(const void *sbuf,
     OPAL_OUTPUT_VERBOSE((20, mca_coll_han_component.han_output,
                          "In HAN seg_count %d count %d num_seg %d\n",
                          seg_count, count, num_segments));
+
+    if (1 == num_segments) {
+        OPAL_OUTPUT_VERBOSE((20, mca_coll_han_component.han_output,
+                             "In HAN seg_count falling back to simple\n"));
+        mca_coll_han_reduce_intra_simple(sbuf, rbuf, count, dtype, op, root, comm, module);
+    }
+
+    ompi_communicator_t *low_comm;
+    ompi_communicator_t *up_comm;
+
+    /* use MCA parameters for now */
+    low_comm = han_module->cached_low_comms[mca_coll_han_component.han_reduce_low_module];
+    up_comm = han_module->cached_up_comms[mca_coll_han_component.han_reduce_up_module];
 
     int *vranks = han_module->cached_vranks;
     int low_rank = ompi_comm_rank(low_comm);
