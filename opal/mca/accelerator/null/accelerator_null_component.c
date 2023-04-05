@@ -53,6 +53,8 @@ static int accelerator_null_memmove(int dest_dev_id, int src_dev_id, void *dest,
 
 static int accelerator_null_mem_alloc(int dev_id, void **ptr, size_t size);
 static int accelerator_null_mem_release(int dev_id, void *ptr);
+static int accelerator_null_mem_alloc_stream(int dev_id, void **ptr, size_t size, opal_accelerator_stream_t* stream);
+static int accelerator_null_mem_release_stream(int dev_id, void *ptr, opal_accelerator_stream_t *stream);
 static int accelerator_null_get_address_range(int dev_id, const void *ptr, void **base, size_t *size);
 
 static int accelerator_null_host_register(int dev_id, void *ptr, size_t size);
@@ -62,6 +64,8 @@ static int accelerator_null_get_device(int *dev_id);
 static int accelerator_null_device_can_access_peer(int *access, int dev1, int dev2);
 
 static int accelerator_null_get_buffer_id(int dev_id, const void *addr, opal_accelerator_buffer_id_t *buf_id);
+
+static int accelerator_null_wait_stream(opal_accelerator_stream_t *stream);
 
 /*
  * Instantiate the public struct with all of our public information
@@ -103,6 +107,8 @@ opal_accelerator_null_component_t mca_accelerator_null_component = {{
 
 opal_accelerator_base_module_t opal_accelerator_null_module =
 {
+    NULL,
+
     accelerator_null_check_addr,
 
     accelerator_null_create_stream,
@@ -116,6 +122,8 @@ opal_accelerator_base_module_t opal_accelerator_null_module =
     accelerator_null_memmove,
     accelerator_null_mem_alloc,
     accelerator_null_mem_release,
+    accelerator_null_mem_alloc_stream,
+    accelerator_null_mem_release_stream,
     accelerator_null_get_address_range,
 
     accelerator_null_host_register,
@@ -124,7 +132,9 @@ opal_accelerator_base_module_t opal_accelerator_null_module =
     accelerator_null_get_device,
     accelerator_null_device_can_access_peer,
 
-    accelerator_null_get_buffer_id
+    accelerator_null_get_buffer_id,
+
+    accelerator_null_wait_stream
 };
 
 static int accelerator_null_open(void)
@@ -214,6 +224,23 @@ static int accelerator_null_mem_release(int dev_id, void *ptr)
     return OPAL_SUCCESS;
 }
 
+static int accelerator_null_mem_alloc_stream(int dev_id, void **ptr, size_t size,
+                                             opal_accelerator_stream_t *stream)
+{
+    (void)stream;
+    *ptr = malloc(size);
+    return OPAL_SUCCESS;
+}
+
+static int accelerator_null_mem_release_stream(int dev_id, void *ptr,
+                                               opal_accelerator_stream_t *stream)
+{
+    (void)stream;
+    free(ptr);
+    return OPAL_SUCCESS;
+}
+
+
 static int accelerator_null_get_address_range(int dev_id, const void *ptr, void **base,
                                               size_t *size)
 {
@@ -243,4 +270,10 @@ static int accelerator_null_device_can_access_peer( int *access, int dev1, int d
 static int accelerator_null_get_buffer_id(int dev_id, const void *addr, opal_accelerator_buffer_id_t *buf_id)
 {
     return OPAL_ERR_NOT_IMPLEMENTED;
+}
+
+
+static int accelerator_null_wait_stream(opal_accelerator_stream_t *stream)
+{
+    return OPAL_SUCCESS;
 }
